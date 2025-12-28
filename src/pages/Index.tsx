@@ -2,11 +2,12 @@ import { useState } from "react";
 import { HomeScreen } from "@/components/HomeScreen";
 import { CategorySelect } from "@/components/CategorySelect";
 import { GameScreen } from "@/components/GameScreen";
+import { GameComplete } from "@/components/GameComplete";
 import { MultiplayerLobby } from "@/components/MultiplayerLobby";
 import { useGame } from "@/hooks/useGame";
 import { Helmet } from "react-helmet";
 
-type GameMode = "home" | "category" | "playing" | "multiplayer";
+type GameMode = "home" | "category" | "playing" | "complete" | "multiplayer";
 
 const Index = () => {
   const [mode, setMode] = useState<GameMode>("home");
@@ -25,9 +26,18 @@ const Index = () => {
     setMode("playing");
   };
 
+  const handleNextRound = () => {
+    if (game.round >= game.totalRounds) {
+      setMode("complete");
+    } else {
+      game.nextRound();
+    }
+  };
+
   const handlePlayAgain = () => {
     game.playAgain();
     game.startGame();
+    setMode("playing");
   };
 
   const handleHome = () => {
@@ -75,12 +85,24 @@ const Index = () => {
           currentHint={game.currentHint}
           score={game.score}
           round={game.round}
+          totalRounds={game.totalRounds}
           isPlaying={game.isPlaying}
           result={game.result}
+          selectedAnswer={game.selectedAnswer}
+          showResult={game.showResult}
           roundDuration={game.roundDuration}
           onNextHint={game.nextHint}
           onSubmitAnswer={game.submitAnswer}
           onTimeUp={game.endRound}
+          onNextRound={handleNextRound}
+        />
+      )}
+
+      {mode === "complete" && (
+        <GameComplete
+          score={game.score}
+          totalRounds={game.totalRounds}
+          correctAnswers={game.correctAnswers}
           onPlayAgain={handlePlayAgain}
           onHome={handleHome}
         />

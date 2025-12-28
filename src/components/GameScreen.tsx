@@ -1,28 +1,31 @@
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Timer } from "@/components/Timer";
 import { HintCard } from "@/components/HintCard";
 import { ScoreDisplay } from "@/components/ScoreDisplay";
-import { AnswerInput } from "@/components/AnswerInput";
+import { OptionsGrid } from "@/components/OptionsGrid";
 import { NeonTitle } from "@/components/NeonTitle";
 import { GlassCard } from "@/components/GlassCard";
 import { categoryConfig, Category } from "@/components/CategoryCard";
-import { ChevronRight, RotateCcw, Home, Share2 } from "lucide-react";
+import { ChevronRight, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface GameScreenProps {
   category: Category;
-  question: { answer: string; hints: string[] };
+  question: { answer: string; hints: string[]; options: string[] };
   currentHint: number;
   score: number;
   round: number;
+  totalRounds: number;
   isPlaying: boolean;
   result: "correct" | "wrong" | null;
+  selectedAnswer: string | null;
+  showResult: boolean;
   roundDuration: number;
   onNextHint: () => void;
   onSubmitAnswer: (answer: string) => void;
   onTimeUp: () => void;
-  onPlayAgain: () => void;
-  onHome: () => void;
+  onNextRound: () => void;
 }
 
 const POINTS_PER_HINT = [10, 7, 5];
@@ -33,38 +36,19 @@ const GameScreen = ({
   currentHint,
   score,
   round,
+  totalRounds,
   isPlaying,
   result,
+  selectedAnswer,
+  showResult,
   roundDuration,
   onNextHint,
   onSubmitAnswer,
   onTimeUp,
-  onPlayAgain,
-  onHome,
+  onNextRound,
 }: GameScreenProps) => {
   const config = categoryConfig[category];
   const Icon = config.icon;
-  const hasWon = result === "correct";
-  const hasLost = !isPlaying && !hasWon && round > 0;
-
-  const handleShare = () => {
-    const shareText = `🎭 I scored ${score} points playing Dumb Charades! Can you beat my score? Play now!`;
-    const shareUrl = window.location.origin;
-    
-    if (navigator.share) {
-      navigator.share({
-        title: "Dumb Charades",
-        text: shareText,
-        url: shareUrl,
-      });
-    } else {
-      // Fallback to WhatsApp
-      window.open(
-        `https://wa.me/?text=${encodeURIComponent(shareText + " " + shareUrl)}`,
-        "_blank"
-      );
-    }
-  };
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -81,24 +65,37 @@ const GameScreen = ({
               <Icon className="w-6 h-6 text-background" />
             </div>
             <div>
-              <p className="text-xs text-muted-foreground uppercase tracking-wider">Round {round}</p>
+              <p className="text-xs text-muted-foreground uppercase tracking-wider">
+                Round {round} of {totalRounds}
+              </p>
               <p className="font-display text-lg">{config.label}</p>
             </div>
           </div>
-          <ScoreDisplay score={score} animate={hasWon} />
+          <ScoreDisplay score={score} animate={result === "correct"} />
+        </div>
+
+        {/* Progress Bar */}
+        <div className="mb-6">
+          <div className="h-2 bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-neon-cyan to-neon-magenta transition-all duration-500"
+              style={{ width: `${(round / totalRounds) * 100}%` }}
+            />
+          </div>
         </div>
 
         {/* Timer */}
-        <div className="flex justify-center mb-8">
+        <div className="flex justify-center mb-6">
           <Timer
             duration={roundDuration}
             onComplete={onTimeUp}
-            isRunning={isPlaying && !hasWon}
+            isRunning={isPlaying && !showResult}
+            key={round}
           />
         </div>
 
         {/* Hints */}
-        <div className="space-y-4 mb-8">
+        <div className="space-y-3 mb-6">
           {question.hints.map((hint, index) => (
             <HintCard
               key={index}
@@ -111,7 +108,7 @@ const GameScreen = ({
         </div>
 
         {/* Next Hint Button */}
-        {isPlaying && !hasWon && currentHint < 2 && (
+        {isPlaying && !showResult && currentHint < 2 && (
           <div className="flex justify-center mb-6">
             <Button
               variant="outline"
@@ -124,76 +121,54 @@ const GameScreen = ({
           </div>
         )}
 
-        {/* Answer Input */}
-        {isPlaying && !hasWon && (
-          <div className="mb-8">
-            <AnswerInput
-              onSubmit={onSubmitAnswer}
-              disabled={hasWon}
-              result={result}
-            />
-          </div>
-        )}
+        {/* MCQ Options */}
+        <div className="mb-6">
+          <OptionsGrid
+            options={question.options}
+            correctAnswer={question.answer}
+            selectedAnswer={selectedAnswer}
+            onSelect={onSubmitAnswer}
+            disabled={showResult}
+            showResult={showResult}
+          />
+        </div>
 
-        {/* Result Screen */}
-        {!isPlaying && (
+        {/* Result Feedback & Next Round */}
+        {showResult && (
           <GlassCard
-            glow={hasWon ? "cyan" : "magenta"}
-            className="text-center animate-scale-in"
+            glow={result === "correct" ? "cyan" : "magenta"}
+            className="text-center animate-scale-in p-6"
           >
             <NeonTitle
-              as="h2"
-              glow={hasWon ? "cyan" : "magenta"}
-              size="lg"
-              className="mb-4"
+              as="h3"
+              glow={result === "correct" ? "cyan" : "magenta"}
+              size="md"
+              className="mb-2"
             >
-              {hasWon ? "CORRECT!" : "TIME'S UP!"}
+              {result === "correct" ? "CORRECT!" : "WRONG!"}
             </NeonTitle>
             
-            <p className="text-xl mb-2">
-              The answer was:{" "}
-              <span className="font-display text-primary font-bold">
-                {question.answer}
-              </span>
-            </p>
+            {result === "correct" && (
+              <p className="text-muted-foreground mb-4">
+                +{POINTS_PER_HINT[currentHint]} points
+              </p>
+            )}
             
-            {hasWon && (
-              <p className="text-muted-foreground mb-6">
-                You earned{" "}
-                <span className="text-primary font-bold">
-                  {POINTS_PER_HINT[currentHint]} points
-                </span>
+            {result === "wrong" && (
+              <p className="text-muted-foreground mb-4">
+                The answer was:{" "}
+                <span className="text-primary font-bold">{question.answer}</span>
               </p>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-3 justify-center mt-6">
-              <Button
-                variant="neon"
-                onClick={onPlayAgain}
-                className="gap-2"
-              >
-                <RotateCcw className="w-4 h-4" />
-                Play Again
-              </Button>
-              
-              <Button
-                variant="outline"
-                onClick={handleShare}
-                className="gap-2"
-              >
-                <Share2 className="w-4 h-4" />
-                Share Score
-              </Button>
-              
-              <Button
-                variant="ghost"
-                onClick={onHome}
-                className="gap-2"
-              >
-                <Home className="w-4 h-4" />
-                Home
-              </Button>
-            </div>
+            <Button
+              variant="neon"
+              onClick={onNextRound}
+              className="gap-2"
+            >
+              {round >= totalRounds ? "See Results" : "Next Round"}
+              <ArrowRight className="w-4 h-4" />
+            </Button>
           </GlassCard>
         )}
       </div>
