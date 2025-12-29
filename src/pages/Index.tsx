@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { HomeScreen } from "@/components/HomeScreen";
 import { CategorySelect } from "@/components/CategorySelect";
 import { GameScreen } from "@/components/GameScreen";
