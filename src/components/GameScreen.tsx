@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Timer } from "@/components/Timer";
 import { HintCard } from "@/components/HintCard";
@@ -7,8 +7,19 @@ import { OptionsGrid } from "@/components/OptionsGrid";
 import { NeonTitle } from "@/components/NeonTitle";
 import { GlassCard } from "@/components/GlassCard";
 import { categoryConfig, Category } from "@/components/CategoryCard";
-import { ChevronRight, ArrowRight } from "lucide-react";
+import { ChevronRight, ArrowRight, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface GameScreenProps {
   category: Category;
@@ -26,6 +37,7 @@ interface GameScreenProps {
   onSubmitAnswer: (answer: string) => void;
   onTimeUp: () => void;
   onNextRound: () => void;
+  onEndGame: () => void;
 }
 
 const POINTS_PER_HINT = [10, 7, 5];
@@ -46,7 +58,9 @@ const GameScreen = ({
   onSubmitAnswer,
   onTimeUp,
   onNextRound,
+  onEndGame,
 }: GameScreenProps) => {
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
   const config = categoryConfig[category];
   const Icon = config.icon;
 
@@ -71,7 +85,37 @@ const GameScreen = ({
               <p className="font-display text-lg">{config.label}</p>
             </div>
           </div>
-          <ScoreDisplay score={score} animate={result === "correct"} />
+          <div className="flex items-center gap-3">
+            <ScoreDisplay score={score} animate={result === "correct"} />
+            <AlertDialog open={showEndConfirm} onOpenChange={setShowEndConfirm}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-background/95 backdrop-blur-lg border-border/50">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>End Game?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to end the game? Your progress will be lost.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Continue Playing</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={onEndGame}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    End Game
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
         </div>
 
         {/* Progress Bar */}
