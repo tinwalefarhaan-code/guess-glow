@@ -27,21 +27,29 @@ const POINTS_PER_HINT = [10, 7, 5];
 const ROUND_DURATION = 30;
 const TOTAL_ROUNDS = 10;
 
-// Expanded mock data with wrong options pool per category
+// Expanded mock data with wrong options pool per category - Bollywood Movies
 const questionBank: Record<Category, { answer: string; hints: string[] }[]> = {
   movies: [
-    { answer: "Titanic", hints: ["An ocean voyage that ends in tragedy", "Leonardo DiCaprio and Kate Winslet star in this epic", "The ship sinks after hitting an iceberg"] },
-    { answer: "The Dark Knight", hints: ["A superhero protects a city", "Heath Ledger won an Oscar for this film", "Why so serious?"] },
-    { answer: "Inception", hints: ["Dreams within dreams", "A spinning top that may or may not fall", "Christopher Nolan directs Leonardo DiCaprio"] },
-    { answer: "Avatar", hints: ["Blue aliens on a distant moon", "James Cameron's sci-fi epic", "Pandora is the setting"] },
-    { answer: "Jurassic Park", hints: ["Scientists bring something back from extinction", "Life finds a way", "Steven Spielberg's dinosaur adventure"] },
-    { answer: "The Matrix", hints: ["Red pill or blue pill?", "Keanu Reeves dodges bullets", "We live in a simulation"] },
-    { answer: "Forrest Gump", hints: ["Life is like a box of chocolates", "A man runs across America", "Tom Hanks plays a simple man with a big heart"] },
-    { answer: "The Lion King", hints: ["A cub loses his father", "Hakuna Matata", "Circle of life in the African savanna"] },
-    { answer: "Gladiator", hints: ["A Roman general seeks revenge", "Are you not entertained?", "Russell Crowe fights in the Colosseum"] },
-    { answer: "The Godfather", hints: ["A powerful family business", "An offer you can't refuse", "Marlon Brando's iconic role"] },
-    { answer: "Interstellar", hints: ["Space exploration to save humanity", "Time moves differently near a black hole", "Christopher Nolan's cosmic journey"] },
-    { answer: "Fight Club", hints: ["First rule: don't talk about it", "Brad Pitt and Edward Norton", "A twist ending about identity"] },
+    { answer: "Sholay", hints: ["Two friends fight a dacoit in a village", "Kitne aadmi the?", "Gabbar Singh is the villain"] },
+    { answer: "Dilwale Dulhania Le Jayenge", hints: ["A love story across Europe and Punjab", "Raj and Simran's iconic romance", "Palat... palat... palat"] },
+    { answer: "3 Idiots", hints: ["Engineering college and friendship", "Aal izz well", "Rancho teaches life lessons"] },
+    { answer: "Lagaan", hints: ["Villagers challenge British rulers", "A cricket match to avoid taxes", "Set during British Raj era"] },
+    { answer: "Dangal", hints: ["A father trains his daughters", "Based on real-life wrestlers", "Aamir Khan's wrestling drama"] },
+    { answer: "Zindagi Na Milegi Dobara", hints: ["Three friends on a road trip in Spain", "Scuba diving, skydiving, and running with bulls", "Celebrating life and freedom"] },
+    { answer: "Kabhi Khushi Kabhie Gham", hints: ["A wealthy family separated by ego", "Bole chudiyan, bole kangana", "K3G with Bachchan and SRK"] },
+    { answer: "Dil Chahta Hai", hints: ["Three friends with different views on love", "Goa trip and friendship", "Aamir, Saif, and Akshaye"] },
+    { answer: "Bajrangi Bhaijaan", hints: ["A man helps a mute girl cross the border", "India-Pakistan emotional journey", "Salman Khan's heartwarming role"] },
+    { answer: "PK", hints: ["An alien questions religious beliefs", "Yellow helmet and transistor radio", "Aamir Khan as a curious visitor"] },
+    { answer: "Andaz Apna Apna", hints: ["Two friends compete for an heiress", "Crime Master Gogo", "Salman and Aamir's comedy classic"] },
+    { answer: "Rang De Basanti", hints: ["College students become revolutionaries", "Radio show about freedom fighters", "Aamir Khan with DJ Aslam"] },
+    { answer: "Deewar", hints: ["Two brothers on opposite sides of the law", "Mere paas maa hai", "Amitabh vs Shashi Kapoor"] },
+    { answer: "Kuch Kuch Hota Hai", hints: ["College love triangle reunited years later", "Rahul and Anjali's love story", "Tina brings them together"] },
+    { answer: "Gully Boy", hints: ["A rapper rises from Mumbai slums", "Apna time aayega", "Ranveer Singh's hip-hop journey"] },
+    { answer: "Queen", hints: ["A bride goes on honeymoon alone", "Paris and Amsterdam adventure", "Kangana Ranaut's empowering journey"] },
+    { answer: "Barfi", hints: ["A deaf-mute man's love story", "Ranbir Kapoor's silent performance", "Set in Darjeeling"] },
+    { answer: "Gangs of Wasseypur", hints: ["Multi-generational mafia saga", "Coal mafia of Jharkhand", "Revenge spanning decades"] },
+    { answer: "Taare Zameen Par", hints: ["A teacher helps a dyslexic child", "Every child is special", "Aamir Khan directs"] },
+    { answer: "Chak De India", hints: ["Coach leads women's hockey team", "India! India!", "Shah Rukh Khan's sports drama"] },
   ],
   animals: [
     { answer: "Elephant", hints: ["Largest land animal", "Has a long trunk for drinking and grabbing things", "Known for their excellent memory"] },
@@ -87,12 +95,13 @@ const questionBank: Record<Category, { answer: string; hints: string[] }[]> = {
   ],
 };
 
-// Pool of wrong answers per category for generating MCQ options
+// Pool of wrong answers per category for generating MCQ options - Bollywood Movies
 const wrongAnswersPool: Record<Category, string[]> = {
   movies: [
-    "Shrek", "Finding Nemo", "Star Wars", "Frozen", "Spider-Man", "Iron Man", "The Avengers",
-    "Harry Potter", "Lord of the Rings", "Back to the Future", "E.T.", "Jaws", "Rocky",
-    "Terminator", "Die Hard", "Mission Impossible", "Indiana Jones", "Pirates of the Caribbean"
+    "Dhoom", "Don", "Krrish", "Ra.One", "War", "Pathaan", "Jawan", "Tiger Zinda Hai",
+    "Sultan", "Padmaavat", "Bajirao Mastani", "Jodhaa Akbar", "Chennai Express", "Happy New Year",
+    "Om Shanti Om", "Main Hoon Na", "Kal Ho Naa Ho", "Mohabbatein", "Devdas", "Veer-Zaara",
+    "Rockstar", "Yeh Jawaani Hai Deewani", "Ae Dil Hai Mushkil", "Tamasha", "Wake Up Sid"
   ],
   animals: [
     "Lion", "Tiger", "Bear", "Wolf", "Eagle", "Shark", "Whale", "Crocodile", "Monkey",

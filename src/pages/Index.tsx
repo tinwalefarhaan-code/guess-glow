@@ -95,6 +95,7 @@ const Index = () => {
           onSubmitAnswer={game.submitAnswer}
           onTimeUp={game.endRound}
           onNextRound={handleNextRound}
+          onEndGame={handleHome}
         />
       )}
 
