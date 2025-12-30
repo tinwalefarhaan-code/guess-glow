@@ -38,31 +38,116 @@ const categoryDatasets: Record<Category, string[]> = {
   things: things,
 };
 
+// Hint templates for each category - indirect and descriptive
+const movieHints: Record<string, string[]> = {
+  default: [
+    "A story of love and sacrifice that touched millions",
+    "Features memorable songs and dramatic moments",
+    "A tale that explores family bonds and emotions",
+  ],
+};
+
+const animalHints: Record<string, string[]> = {
+  Dog: [
+    "Often called man's best friend",
+    "A loyal domestic companion that loves to fetch",
+  ],
+  Cat: [
+    "Known for its independence and graceful movements",
+    "A purring pet that loves to chase mice",
+  ],
+  Lion: [
+    "Called the king of the jungle",
+    "A majestic big cat with a mighty roar",
+  ],
+  Elephant: [
+    "The largest land animal on Earth",
+    "Known for its long trunk and excellent memory",
+  ],
+  Tiger: [
+    "A fierce striped predator of the jungle",
+    "India's national animal, powerful and solitary",
+  ],
+  default: [
+    "A creature found in nature",
+    "Lives and breathes like all living beings",
+  ],
+};
+
+const placeHints: Record<string, string[]> = {
+  Mumbai: [
+    "The financial capital and home of Bollywood",
+    "A coastal city known for its fast-paced life",
+  ],
+  Delhi: [
+    "India's capital with rich Mughal history",
+    "Home to the Red Fort and India Gate",
+  ],
+  Jaipur: [
+    "Known as the Pink City of Rajasthan",
+    "Famous for its royal palaces and forts",
+  ],
+  default: [
+    "A place of cultural and historical significance",
+    "Known for its unique heritage and landmarks",
+  ],
+};
+
+const thingHints: Record<string, string[]> = {
+  Phone: [
+    "A device that keeps you connected worldwide",
+    "You use it to call, text, and browse",
+  ],
+  Chair: [
+    "A piece of furniture for sitting",
+    "Found in homes, offices, and schools",
+  ],
+  Book: [
+    "A source of knowledge and stories",
+    "Made of pages bound together",
+  ],
+  default: [
+    "An object used in daily life",
+    "Something you might find around you",
+  ],
+};
+
 // Generate hints based on category and answer
 const generateHints = (answer: string, category: Category): string[] => {
   const hints: string[] = [];
+  const answerLength = answer.replace(/\s/g, "").length;
+  const firstLetter = answer[0].toUpperCase();
   
-  switch (category) {
-    case "movies":
-      hints.push(`This is a Bollywood movie with ${answer.split(" ").length} word(s)`);
-      hints.push(`The movie starts with the letter "${answer[0]}"`);
-      hints.push(`The movie name is: ${answer.substring(0, Math.ceil(answer.length / 2))}...`);
-      break;
-    case "animals":
-      hints.push(`This animal name has ${answer.length} letters`);
-      hints.push(`It starts with the letter "${answer[0]}"`);
-      hints.push(`The name begins with: ${answer.substring(0, Math.ceil(answer.length / 2))}...`);
-      break;
-    case "places":
-      hints.push(`This Indian place has ${answer.split(" ").length} word(s) in its name`);
-      hints.push(`It starts with the letter "${answer[0]}"`);
-      hints.push(`The name is: ${answer.substring(0, Math.ceil(answer.length / 2))}...`);
-      break;
-    case "things":
-      hints.push(`This thing has ${answer.length} letters in its name`);
-      hints.push(`It starts with the letter "${answer[0]}"`);
-      hints.push(`The name begins with: ${answer.substring(0, Math.ceil(answer.length / 2))}...`);
-      break;
+  // Get category-specific hints or use defaults
+  const getHintTemplates = (cat: Category, ans: string): string[] => {
+    switch (cat) {
+      case "movies":
+        return movieHints[ans] || movieHints.default;
+      case "animals":
+        return animalHints[ans] || animalHints.default;
+      case "places":
+        return placeHints[ans] || placeHints.default;
+      case "things":
+        return thingHints[ans] || thingHints.default;
+      default:
+        return ["Think carefully about this one", "A tricky puzzle awaits"];
+    }
+  };
+
+  const templates = getHintTemplates(category, answer);
+  
+  // Hint 1: Indirect descriptive hint (no letters, no length)
+  hints.push(templates[0] || `A ${category.slice(0, -1)} that is quite well-known`);
+  
+  // Hint 2: Functional/contextual clue (still no letters)
+  hints.push(templates[1] || templates[0] || `Think about popular ${category}`);
+  
+  // Hint 3: Word length + starting letter together
+  const wordCount = answer.split(" ").length;
+  if (wordCount > 1) {
+    hints.push(`${answerLength} letters total across ${wordCount} words, starts with "${firstLetter}"`);
+  } else {
+    hints.push(`${answerLength} letters, starts with "${firstLetter}"`);
   }
   
   return hints;
@@ -77,16 +162,45 @@ const shuffleArray = <T,>(array: T[]): T[] => {
   return shuffled;
 };
 
+// Generate smart options - similar length, same category, confusing alternatives
 const generateOptions = (correctAnswer: string, category: Category, usedAnswers: Set<string>): string[] => {
   const dataset = categoryDatasets[category];
+  const correctLength = correctAnswer.replace(/\s/g, "").length;
+  const firstLetter = correctAnswer[0].toLowerCase();
   
   // Get wrong options from dataset, excluding the correct answer and used answers
   const availableWrongAnswers = dataset.filter(
     (ans) => ans !== correctAnswer && !usedAnswers.has(ans)
   );
   
-  const shuffledWrong = shuffleArray(availableWrongAnswers);
-  const selectedWrong = shuffledWrong.slice(0, 3);
+  // Score each option by similarity to correct answer
+  const scoredOptions = availableWrongAnswers.map((option) => {
+    const optionLength = option.replace(/\s/g, "").length;
+    const lengthDiff = Math.abs(optionLength - correctLength);
+    const sameFirstLetter = option[0].toLowerCase() === firstLetter ? 1 : 0;
+    const sameWordCount = option.split(" ").length === correctAnswer.split(" ").length ? 1 : 0;
+    
+    // Higher score = more similar (better distractor)
+    // Prefer: similar length (within 2), same first letter, same word count
+    let score = 0;
+    if (lengthDiff <= 2) score += 3;
+    else if (lengthDiff <= 4) score += 1;
+    score += sameFirstLetter * 2;
+    score += sameWordCount * 1;
+    
+    return { option, score, lengthDiff };
+  });
+  
+  // Sort by score (desc) then by length difference (asc) for tiebreaker
+  scoredOptions.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return a.lengthDiff - b.lengthDiff;
+  });
+  
+  // Take top candidates and shuffle to add randomness
+  const topCandidates = scoredOptions.slice(0, 10);
+  const shuffledTop = shuffleArray(topCandidates);
+  const selectedWrong = shuffledTop.slice(0, 3).map((s) => s.option);
   
   // Combine correct + wrong and shuffle
   return shuffleArray([correctAnswer, ...selectedWrong]);
