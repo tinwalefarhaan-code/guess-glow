@@ -3,34 +3,23 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NeonTitle } from "@/components/NeonTitle";
 import { GlassCard } from "@/components/GlassCard";
-import { ArrowLeft, Plus, LogIn, Copy, Users, Check } from "lucide-react";
+import { ArrowLeft, Plus, LogIn } from "lucide-react";
 import { toast } from "sonner";
 
 interface MultiplayerLobbyProps {
   onBack: () => void;
-  onJoinRoom: (code: string) => void;
-  onCreateRoom: () => void;
+  onJoinRoom: (code: string, isHost: boolean) => void;
+  onCreateRoom: (code: string) => void;
 }
 
 const MultiplayerLobby = ({ onBack, onJoinRoom, onCreateRoom }: MultiplayerLobbyProps) => {
-  const [mode, setMode] = useState<"select" | "join" | "create">("select");
+  const [mode, setMode] = useState<"select" | "join">("select");
   const [roomCode, setRoomCode] = useState("");
-  const [generatedCode, setGeneratedCode] = useState("");
-  const [copied, setCopied] = useState(false);
 
   const handleCreateRoom = () => {
-    // Generate a random 6-character room code
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    setGeneratedCode(code);
-    setMode("create");
-    toast.success("Room created! Share the code with friends.");
-  };
-
-  const handleCopyCode = () => {
-    navigator.clipboard.writeText(generatedCode);
-    setCopied(true);
-    toast.success("Code copied to clipboard!");
-    setTimeout(() => setCopied(false), 2000);
+    onCreateRoom(code);
+    onJoinRoom(code, true);
   };
 
   const handleJoinRoom = () => {
@@ -38,78 +27,14 @@ const MultiplayerLobby = ({ onBack, onJoinRoom, onCreateRoom }: MultiplayerLobby
       toast.error("Please enter a valid room code");
       return;
     }
-    toast.info("Multiplayer feature coming soon! For now, enjoy single player mode.");
-    // onJoinRoom(roomCode.toUpperCase());
+    onJoinRoom(roomCode.toUpperCase(), false);
   };
 
-  if (mode === "create") {
-    return (
-      <div className="min-h-screen bg-background p-4 md:p-8">
-        <div className="max-w-md mx-auto">
-          <Button
-            variant="ghost"
-            onClick={() => setMode("select")}
-            className="mb-8 opacity-0 animate-fade-in"
-          >
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back
-          </Button>
-
-          <div className="text-center opacity-0 animate-fade-in stagger-1">
-            <NeonTitle glow="magenta" size="lg" className="mb-4">
-              ROOM CREATED
-            </NeonTitle>
-            <p className="text-muted-foreground mb-8">
-              Share this code with your friends to join
-            </p>
-          </div>
-
-          <GlassCard glow="magenta" className="text-center mb-8 opacity-0 animate-scale-in stagger-2">
-            <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-              Room Code
-            </p>
-            <div className="flex items-center justify-center gap-4">
-              <span className="font-display text-4xl md:text-5xl font-bold text-secondary neon-text-magenta tracking-[0.3em]">
-                {generatedCode}
-              </span>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={handleCopyCode}
-                className="h-12 w-12"
-              >
-                {copied ? (
-                  <Check className="w-5 h-5 text-neon-green" />
-                ) : (
-                  <Copy className="w-5 h-5" />
-                )}
-              </Button>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="opacity-0 animate-fade-in stagger-3">
-            <div className="flex items-center justify-between mb-4">
-              <span className="text-sm text-muted-foreground">Players</span>
-              <span className="font-display text-primary">1/6</span>
-            </div>
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/30">
-              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-cyan-400 flex items-center justify-center">
-                <Users className="w-5 h-5 text-background" />
-              </div>
-              <div>
-                <p className="font-semibold">You (Host)</p>
-                <p className="text-xs text-muted-foreground">Waiting for players...</p>
-              </div>
-            </div>
-          </GlassCard>
-
-          <p className="text-center text-muted-foreground text-sm mt-8 opacity-0 animate-fade-in stagger-4">
-            The game will start when all players are ready
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && roomCode.length >= 4) {
+      handleJoinRoom();
+    }
+  };
 
   if (mode === "join") {
     return (
@@ -140,9 +65,11 @@ const MultiplayerLobby = ({ onBack, onJoinRoom, onCreateRoom }: MultiplayerLobby
             <Input
               value={roomCode}
               onChange={(e) => setRoomCode(e.target.value.toUpperCase())}
+              onKeyDown={handleKeyDown}
               placeholder="ENTER CODE"
               className="h-14 text-2xl text-center font-display tracking-[0.3em] bg-transparent border-primary/30 focus-visible:border-primary"
               maxLength={6}
+              autoFocus
             />
           </GlassCard>
 
