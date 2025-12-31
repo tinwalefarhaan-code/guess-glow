@@ -175,8 +175,10 @@ const MultiplayerGameScreen = ({
                   key={index}
                   hint={hint}
                   hintNumber={index + 1}
-                  isActive={index <= currentHint}
+                  isUnlocked={index <= currentHint}
+                  isLocked={index > currentHint}
                   points={POINTS_BY_POSITION[index] || 0}
+                  canUnlock={false}
                 />
               ))}
             </div>

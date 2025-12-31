@@ -14,6 +14,8 @@ interface GameQuestion {
 interface GameState {
   category: Category | null;
   currentHint: number;
+  unlockedHints: boolean[];
+  maxPoints: number;
   score: number;
   round: number;
   totalRounds: number;
@@ -24,6 +26,7 @@ interface GameState {
   result: "correct" | "wrong" | null;
   selectedAnswer: string | null;
   showResult: boolean;
+  roundStartTime: number;
 }
 
 const POINTS_PER_HINT = [10, 7, 5];
@@ -223,6 +226,8 @@ export const useGame = () => {
   const [state, setState] = useState<GameState>({
     category: null,
     currentHint: 0,
+    unlockedHints: [true, false, false], // Hint 1 always unlocked
+    maxPoints: POINTS_PER_HINT[0], // Start with max points for hint 1
     score: 0,
     round: 0,
     totalRounds: TOTAL_ROUNDS,
@@ -233,6 +238,7 @@ export const useGame = () => {
     result: null,
     selectedAnswer: null,
     showResult: false,
+    roundStartTime: 0,
   });
 
   const selectCategory = useCallback((category: Category) => {
@@ -275,11 +281,14 @@ export const useGame = () => {
         options,
       },
       currentHint: 0,
+      unlockedHints: [true, false, false],
+      maxPoints: POINTS_PER_HINT[0],
       isPlaying: true,
       round: currentRound + 1,
       result: null,
       selectedAnswer: null,
       showResult: false,
+      roundStartTime: Date.now(),
     }));
   }, []);
 
@@ -309,19 +318,50 @@ export const useGame = () => {
         options,
       },
       currentHint: 0,
+      unlockedHints: [true, false, false],
+      maxPoints: POINTS_PER_HINT[0],
       isPlaying: true,
       result: null,
       selectedAnswer: null,
       showResult: false,
+      roundStartTime: Date.now(),
     }));
   }, [state.category]);
 
-  const nextHint = useCallback(() => {
-    setState((prev) => ({
-      ...prev,
-      currentHint: Math.min(prev.currentHint + 1, 2),
-    }));
+  const unlockHint = useCallback((hintIndex: number) => {
+    setState((prev) => {
+      if (prev.unlockedHints[hintIndex] || hintIndex === 0) return prev;
+      
+      const newUnlockedHints = [...prev.unlockedHints];
+      newUnlockedHints[hintIndex] = true;
+      
+      // Update max points to the newly unlocked hint's points
+      const newMaxPoints = POINTS_PER_HINT[hintIndex];
+      
+      return {
+        ...prev,
+        unlockedHints: newUnlockedHints,
+        currentHint: hintIndex,
+        maxPoints: newMaxPoints,
+      };
+    });
   }, []);
+
+  // Auto-unlock hints based on time elapsed (60s for hint 2, 120s for hint 3)
+  const checkAutoUnlock = useCallback(() => {
+    if (!state.isPlaying || state.showResult) return;
+    
+    const elapsed = (Date.now() - state.roundStartTime) / 1000;
+    
+    // Auto-unlock hint 2 after 60 seconds (but only if round duration allows)
+    if (elapsed >= 60 && !state.unlockedHints[1]) {
+      unlockHint(1);
+    }
+    // Auto-unlock hint 3 after 120 seconds (but only if round duration allows)
+    if (elapsed >= 120 && !state.unlockedHints[2]) {
+      unlockHint(2);
+    }
+  }, [state.isPlaying, state.showResult, state.roundStartTime, state.unlockedHints, unlockHint]);
 
   const submitAnswer = useCallback((answer: string) => {
     if (!state.question || state.showResult) return false;
@@ -333,7 +373,7 @@ export const useGame = () => {
       selectedAnswer: answer,
       showResult: true,
       result: isCorrect ? "correct" : "wrong",
-      score: isCorrect ? prev.score + POINTS_PER_HINT[prev.currentHint] : prev.score,
+      score: isCorrect ? prev.score + prev.maxPoints : prev.score,
       correctAnswers: isCorrect ? prev.correctAnswers + 1 : prev.correctAnswers,
     }));
 
@@ -368,6 +408,8 @@ export const useGame = () => {
     setState({
       category: null,
       currentHint: 0,
+      unlockedHints: [true, false, false],
+      maxPoints: POINTS_PER_HINT[0],
       score: 0,
       round: 0,
       totalRounds: TOTAL_ROUNDS,
@@ -378,6 +420,7 @@ export const useGame = () => {
       result: null,
       selectedAnswer: null,
       showResult: false,
+      roundStartTime: 0,
     });
   }, []);
 
@@ -386,6 +429,8 @@ export const useGame = () => {
     setState((prev) => ({
       ...prev,
       currentHint: 0,
+      unlockedHints: [true, false, false],
+      maxPoints: POINTS_PER_HINT[0],
       score: 0,
       round: 0,
       correctAnswers: 0,
@@ -395,6 +440,7 @@ export const useGame = () => {
       result: null,
       selectedAnswer: null,
       showResult: false,
+      roundStartTime: 0,
     }));
   }, []);
 
@@ -402,7 +448,8 @@ export const useGame = () => {
     ...state,
     selectCategory,
     startGame: startGameWithRound,
-    nextHint,
+    unlockHint,
+    checkAutoUnlock,
     submitAnswer,
     nextRound,
     endRound,

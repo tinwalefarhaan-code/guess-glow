@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
 interface TimerProps {
@@ -8,7 +8,8 @@ interface TimerProps {
   className?: string;
 }
 
-const Timer = ({ duration, onComplete, isRunning, className }: TimerProps) => {
+const Timer = forwardRef<HTMLDivElement, TimerProps>(
+  ({ duration, onComplete, isRunning, className }, ref) => {
   const [timeLeft, setTimeLeft] = useState(duration);
 
   useEffect(() => {
@@ -38,7 +39,7 @@ const Timer = ({ duration, onComplete, isRunning, className }: TimerProps) => {
   const seconds = timeLeft % 60;
 
   return (
-    <div className={cn("relative", className)}>
+    <div ref={ref} className={cn("relative", className)}>
       <div className="relative w-24 h-24 md:w-32 md:h-32">
         {/* Background circle */}
         <svg className="w-full h-full transform -rotate-90">
@@ -95,6 +96,8 @@ const Timer = ({ duration, onComplete, isRunning, className }: TimerProps) => {
       </div>
     </div>
   );
-};
+});
+
+Timer.displayName = "Timer";
 
 export { Timer };
