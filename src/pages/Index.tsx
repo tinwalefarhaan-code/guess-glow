@@ -1,15 +1,20 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { HomeScreen } from "@/components/HomeScreen";
 import { CategorySelect } from "@/components/CategorySelect";
 import { GameScreen } from "@/components/GameScreen";
 import { GameComplete } from "@/components/GameComplete";
 import { MultiplayerLobby } from "@/components/MultiplayerLobby";
 import { WaitingRoom } from "@/components/WaitingRoom";
+import { QuestionMasterInput } from "@/components/QuestionMasterInput";
+import { MultiplayerGameScreen } from "@/components/MultiplayerGameScreen";
+import { MultiplayerRoundResult } from "@/components/MultiplayerRoundResult";
+import { MultiplayerScoreboard } from "@/components/MultiplayerScoreboard";
 import { useGame } from "@/hooks/useGame";
+import { useMultiplayerGame, MultiplayerPlayer, RoundQuestion } from "@/hooks/useMultiplayerGame";
 import { Helmet } from "react-helmet";
 import { toast } from "sonner";
 
-type GameMode = "home" | "category" | "playing" | "complete" | "multiplayer" | "waiting";
+type GameMode = "home" | "category" | "playing" | "complete" | "multiplayer" | "waiting" | "multiplayer-playing";
 
 interface Player {
   id: string;
@@ -22,7 +27,9 @@ const Index = () => {
   const [roomCode, setRoomCode] = useState("");
   const [isHost, setIsHost] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [currentPlayerId, setCurrentPlayerId] = useState("");
   const game = useGame();
+  const multiplayerGame = useMultiplayerGame(currentPlayerId);
 
   const handleSinglePlayer = () => {
     setMode("category");
@@ -41,9 +48,11 @@ const Index = () => {
     setRoomCode(code);
     setIsHost(hostStatus);
     
-    // Initialize players list with current user
+    const playerId = crypto.randomUUID();
+    setCurrentPlayerId(playerId);
+    
     const currentPlayer: Player = {
-      id: crypto.randomUUID(),
+      id: playerId,
       name: hostStatus ? "You (Host)" : "You",
       isHost: hostStatus,
     };
@@ -51,7 +60,6 @@ const Index = () => {
     if (hostStatus) {
       setPlayers([currentPlayer]);
     } else {
-      // Simulate joining - in real app, would fetch from server
       const hostPlayer: Player = {
         id: crypto.randomUUID(),
         name: "Host",
@@ -68,6 +76,7 @@ const Index = () => {
     setRoomCode("");
     setIsHost(false);
     setPlayers([]);
+    multiplayerGame.resetGame();
     setMode("multiplayer");
   };
 
@@ -76,11 +85,40 @@ const Index = () => {
       toast.error("Need at least 2 players to start");
       return;
     }
+    if (players.length > 6) {
+      toast.error("Maximum 6 players allowed");
+      return;
+    }
+    
+    // Initialize multiplayer game with players
+    const mpPlayers: MultiplayerPlayer[] = players.map(p => ({
+      ...p,
+      score: 0,
+      hasAnswered: false,
+      answer: null,
+      isCorrect: null,
+      isConnected: true,
+    }));
+    
+    multiplayerGame.initializeGame(mpPlayers);
     toast.success("Game starting!");
-    // For now, transition to category select
-    // In full implementation, would sync with all players
-    setMode("category");
+    setMode("multiplayer-playing");
   };
+
+  // Start first round when game initializes
+  useEffect(() => {
+    if (mode === "multiplayer-playing" && multiplayerGame.roundPhase === "waiting" && multiplayerGame.players.length > 0) {
+      multiplayerGame.startRound();
+    }
+  }, [mode, multiplayerGame.roundPhase, multiplayerGame.players.length]);
+
+  // Start timer when guessing phase begins
+  useEffect(() => {
+    if (multiplayerGame.roundPhase === "guessing") {
+      multiplayerGame.startTimer();
+    }
+    return () => multiplayerGame.stopTimer();
+  }, [multiplayerGame.roundPhase]);
 
   const handleStartGame = () => {
     game.startGame();
@@ -103,15 +141,39 @@ const Index = () => {
 
   const handleHome = () => {
     game.resetGame();
+    multiplayerGame.resetGame();
     setRoomCode("");
     setIsHost(false);
     setPlayers([]);
     setMode("home");
   };
 
-  const handleBackToCategory = () => {
-    setMode("category");
+  const handleMultiplayerPlayAgain = () => {
+    const mpPlayers: MultiplayerPlayer[] = players.map(p => ({
+      ...p,
+      score: 0,
+      hasAnswered: false,
+      answer: null,
+      isCorrect: null,
+      isConnected: true,
+    }));
+    multiplayerGame.initializeGame(mpPlayers);
   };
+
+  const handleSubmitQuestion = (question: RoundQuestion) => {
+    multiplayerGame.submitQuestion(question);
+  };
+
+  const handleSubmitAnswer = (answer: string) => {
+    multiplayerGame.submitAnswer(currentPlayerId, answer);
+  };
+
+  const handleNextMultiplayerRound = () => {
+    multiplayerGame.startRound();
+  };
+
+  const currentPlayer = multiplayerGame.getCurrentPlayer();
+  const questionMaster = multiplayerGame.getQuestionMaster();
 
   return (
     <>
@@ -188,6 +250,66 @@ const Index = () => {
           isHost={isHost}
           onBack={handleLeaveRoom}
           onStartGame={handleMultiplayerStart}
+        />
+      )}
+
+      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "question-master-input" && currentPlayer && (
+        multiplayerGame.isQuestionMaster() ? (
+          <QuestionMasterInput
+            playerName={currentPlayer.name}
+            roundNumber={multiplayerGame.currentRound}
+            totalRounds={multiplayerGame.totalRounds}
+            onSubmit={handleSubmitQuestion}
+          />
+        ) : (
+          <div className="min-h-screen bg-background flex items-center justify-center p-4">
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-full bg-secondary/20 flex items-center justify-center mx-auto mb-4">
+                <div className="w-3 h-3 rounded-full bg-secondary animate-pulse" />
+              </div>
+              <h2 className="font-display text-2xl mb-2">Waiting for Question Master</h2>
+              <p className="text-muted-foreground">
+                {questionMaster?.name} is creating the puzzle...
+              </p>
+            </div>
+          </div>
+        )
+      )}
+
+      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "guessing" && multiplayerGame.question && currentPlayer && questionMaster && (
+        <MultiplayerGameScreen
+          question={multiplayerGame.question}
+          currentHint={multiplayerGame.currentHint}
+          timeRemaining={multiplayerGame.timeRemaining}
+          players={multiplayerGame.players}
+          questionMaster={questionMaster}
+          currentPlayer={currentPlayer}
+          isQuestionMaster={multiplayerGame.isQuestionMaster()}
+          roundNumber={multiplayerGame.currentRound}
+          totalRounds={multiplayerGame.totalRounds}
+          onRevealHint={multiplayerGame.revealNextHint}
+          onSubmitAnswer={handleSubmitAnswer}
+          onTimeUp={multiplayerGame.endRound}
+        />
+      )}
+
+      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "round-result" && multiplayerGame.question && questionMaster && (
+        <MultiplayerRoundResult
+          question={multiplayerGame.question}
+          players={multiplayerGame.players}
+          questionMaster={questionMaster}
+          correctGuessOrder={multiplayerGame.correctGuessOrder}
+          roundNumber={multiplayerGame.currentRound}
+          totalRounds={multiplayerGame.totalRounds}
+          onNextRound={handleNextMultiplayerRound}
+        />
+      )}
+
+      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "game-complete" && (
+        <MultiplayerScoreboard
+          players={multiplayerGame.players}
+          onPlayAgain={handleMultiplayerPlayAgain}
+          onHome={handleHome}
         />
       )}
     </>
