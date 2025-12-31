@@ -25,6 +25,8 @@ interface GameScreenProps {
   category: Category;
   question: { answer: string; hints: string[]; options: string[] };
   currentHint: number;
+  unlockedHints: boolean[];
+  maxPoints: number;
   score: number;
   round: number;
   totalRounds: number;
@@ -33,7 +35,7 @@ interface GameScreenProps {
   selectedAnswer: string | null;
   showResult: boolean;
   roundDuration: number;
-  onNextHint: () => void;
+  onUnlockHint: (hintIndex: number) => void;
   onSubmitAnswer: (answer: string) => void;
   onTimeUp: () => void;
   onNextRound: () => void;
@@ -46,6 +48,8 @@ const GameScreen = ({
   category,
   question,
   currentHint,
+  unlockedHints,
+  maxPoints,
   score,
   round,
   totalRounds,
@@ -54,7 +58,7 @@ const GameScreen = ({
   selectedAnswer,
   showResult,
   roundDuration,
-  onNextHint,
+  onUnlockHint,
   onSubmitAnswer,
   onTimeUp,
   onNextRound,
@@ -145,25 +149,14 @@ const GameScreen = ({
               key={index}
               hint={hint}
               hintNumber={index + 1}
-              isActive={index <= currentHint}
+              isUnlocked={unlockedHints[index]}
+              isLocked={!unlockedHints[index]}
               points={POINTS_PER_HINT[index]}
+              canUnlock={index > 0 && !unlockedHints[index] && unlockedHints[index - 1] && isPlaying && !showResult}
+              onUnlock={() => onUnlockHint(index)}
             />
           ))}
         </div>
-
-        {/* Next Hint Button */}
-        {isPlaying && !showResult && currentHint < 2 && (
-          <div className="flex justify-center mb-6">
-            <Button
-              variant="outline"
-              onClick={onNextHint}
-              className="gap-2"
-            >
-              Next Hint
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-        )}
 
         {/* MCQ Options */}
         <div className="mb-6">
@@ -194,7 +187,7 @@ const GameScreen = ({
             
             {result === "correct" && (
               <p className="text-muted-foreground mb-4">
-                +{POINTS_PER_HINT[currentHint]} points
+                +{maxPoints} points
               </p>
             )}
             

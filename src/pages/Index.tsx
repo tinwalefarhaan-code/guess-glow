@@ -209,6 +209,8 @@ const Index = () => {
           category={game.category}
           question={game.question}
           currentHint={game.currentHint}
+          unlockedHints={game.unlockedHints}
+          maxPoints={game.maxPoints}
           score={game.score}
           round={game.round}
           totalRounds={game.totalRounds}
@@ -217,7 +219,7 @@ const Index = () => {
           selectedAnswer={game.selectedAnswer}
           showResult={game.showResult}
           roundDuration={game.roundDuration}
-          onNextHint={game.nextHint}
+          onUnlockHint={game.unlockHint}
           onSubmitAnswer={game.submitAnswer}
           onTimeUp={game.endRound}
           onNextRound={handleNextRound}
