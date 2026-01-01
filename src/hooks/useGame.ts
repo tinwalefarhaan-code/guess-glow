@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { Category } from "@/components/CategoryCard";
 import { bollywoodMovies } from "@/data/bollywoodMovies";
 import { animals } from "@/data/animals";
@@ -33,12 +33,18 @@ const POINTS_PER_HINT = [10, 7, 5];
 const ROUND_DURATION = 30;
 const TOTAL_ROUNDS = 10;
 
-// Category datasets mapping
+// Category datasets mapping with fallback empty arrays
 const categoryDatasets: Record<Category, string[]> = {
-  movies: bollywoodMovies,
-  animals: animals,
-  places: indianPlaces,
-  things: things,
+  movies: bollywoodMovies || [],
+  animals: animals || [],
+  places: indianPlaces || [],
+  things: things || [],
+};
+
+// Ensure datasets are valid
+const getDataset = (category: Category): string[] => {
+  const dataset = categoryDatasets[category];
+  return Array.isArray(dataset) && dataset.length > 0 ? dataset : [];
 };
 
 // Hint templates for each category - indirect and descriptive
@@ -117,9 +123,13 @@ const thingHints: Record<string, string[]> = {
 
 // Generate hints based on category and answer
 const generateHints = (answer: string, category: Category): string[] => {
+  if (!answer || !category) {
+    return ["Think about this one", "Consider the category", "3 letters, starts with ?"];
+  }
+  
   const hints: string[] = [];
   const answerLength = answer.replace(/\s/g, "").length;
-  const firstLetter = answer[0].toUpperCase();
+  const firstLetter = answer[0]?.toUpperCase() || "?";
   
   // Get category-specific hints or use defaults
   const getHintTemplates = (cat: Category, ans: string): string[] => {
@@ -157,6 +167,7 @@ const generateHints = (answer: string, category: Category): string[] => {
 };
 
 const shuffleArray = <T,>(array: T[]): T[] => {
+  if (!Array.isArray(array) || array.length === 0) return [];
   const shuffled = [...array];
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -167,24 +178,37 @@ const shuffleArray = <T,>(array: T[]): T[] => {
 
 // Generate smart options - similar length, same category, confusing alternatives
 const generateOptions = (correctAnswer: string, category: Category, usedAnswers: Set<string>): string[] => {
-  const dataset = categoryDatasets[category];
+  const dataset = getDataset(category);
+  
+  if (!correctAnswer || dataset.length === 0) {
+    return [correctAnswer || "Option 1", "Option 2", "Option 3", "Option 4"];
+  }
+  
   const correctLength = correctAnswer.replace(/\s/g, "").length;
-  const firstLetter = correctAnswer[0].toLowerCase();
+  const firstLetter = correctAnswer[0]?.toLowerCase() || "";
   
   // Get wrong options from dataset, excluding the correct answer and used answers
   const availableWrongAnswers = dataset.filter(
-    (ans) => ans !== correctAnswer && !usedAnswers.has(ans)
+    (ans) => ans && ans !== correctAnswer && !usedAnswers.has(ans)
   );
+  
+  if (availableWrongAnswers.length < 3) {
+    // Not enough options, use what we have
+    const allOptions = [correctAnswer, ...availableWrongAnswers.slice(0, 3)];
+    while (allOptions.length < 4) {
+      allOptions.push(`Option ${allOptions.length + 1}`);
+    }
+    return shuffleArray(allOptions);
+  }
   
   // Score each option by similarity to correct answer
   const scoredOptions = availableWrongAnswers.map((option) => {
     const optionLength = option.replace(/\s/g, "").length;
     const lengthDiff = Math.abs(optionLength - correctLength);
-    const sameFirstLetter = option[0].toLowerCase() === firstLetter ? 1 : 0;
+    const sameFirstLetter = option[0]?.toLowerCase() === firstLetter ? 1 : 0;
     const sameWordCount = option.split(" ").length === correctAnswer.split(" ").length ? 1 : 0;
     
     // Higher score = more similar (better distractor)
-    // Prefer: similar length (within 2), same first letter, same word count
     let score = 0;
     if (lengthDiff <= 2) score += 3;
     else if (lengthDiff <= 4) score += 1;
@@ -210,8 +234,11 @@ const generateOptions = (correctAnswer: string, category: Category, usedAnswers:
 };
 
 const getRandomAnswer = (category: Category, usedAnswers: Set<string>): string | null => {
-  const dataset = categoryDatasets[category];
-  const available = dataset.filter((item) => !usedAnswers.has(item));
+  const dataset = getDataset(category);
+  
+  if (dataset.length === 0) return null;
+  
+  const available = dataset.filter((item) => item && !usedAnswers.has(item));
   
   if (available.length === 0) {
     return null;
@@ -220,26 +247,28 @@ const getRandomAnswer = (category: Category, usedAnswers: Set<string>): string |
   return available[Math.floor(Math.random() * available.length)];
 };
 
+const createInitialState = (): GameState => ({
+  category: null,
+  currentHint: 0,
+  unlockedHints: [true, false, false],
+  maxPoints: POINTS_PER_HINT[0],
+  score: 0,
+  round: 0,
+  totalRounds: TOTAL_ROUNDS,
+  correctAnswers: 0,
+  isPlaying: false,
+  isGameComplete: false,
+  question: null,
+  result: null,
+  selectedAnswer: null,
+  showResult: false,
+  roundStartTime: 0,
+});
+
 export const useGame = () => {
   const usedAnswersRef = useRef<Set<string>>(new Set());
   
-  const [state, setState] = useState<GameState>({
-    category: null,
-    currentHint: 0,
-    unlockedHints: [true, false, false], // Hint 1 always unlocked
-    maxPoints: POINTS_PER_HINT[0], // Start with max points for hint 1
-    score: 0,
-    round: 0,
-    totalRounds: TOTAL_ROUNDS,
-    correctAnswers: 0,
-    isPlaying: false,
-    isGameComplete: false,
-    question: null,
-    result: null,
-    selectedAnswer: null,
-    showResult: false,
-    roundStartTime: 0,
-  });
+  const [state, setState] = useState<GameState>(createInitialState());
 
   const selectCategory = useCallback((category: Category) => {
     setState((prev) => ({ ...prev, category }));
@@ -259,13 +288,16 @@ export const useGame = () => {
     // Get random answer that hasn't been used
     let answer = getRandomAnswer(category, usedAnswersRef.current);
     
-    // Reset if all answers used (shouldn't happen with large datasets)
+    // Reset if all answers used
     if (!answer) {
       usedAnswersRef.current = new Set();
       answer = getRandomAnswer(category, usedAnswersRef.current);
     }
     
-    if (!answer) return;
+    if (!answer) {
+      console.error("No answers available for category:", category);
+      return;
+    }
     
     // Mark answer as used
     usedAnswersRef.current.add(answer);
@@ -299,7 +331,10 @@ export const useGame = () => {
     usedAnswersRef.current = new Set();
     
     const answer = getRandomAnswer(state.category, usedAnswersRef.current);
-    if (!answer) return;
+    if (!answer) {
+      console.error("No answers available for category:", state.category);
+      return;
+    }
     
     usedAnswersRef.current.add(answer);
     
@@ -330,6 +365,7 @@ export const useGame = () => {
 
   const unlockHint = useCallback((hintIndex: number) => {
     setState((prev) => {
+      if (hintIndex < 0 || hintIndex > 2) return prev;
       if (prev.unlockedHints[hintIndex] || hintIndex === 0) return prev;
       
       const newUnlockedHints = [...prev.unlockedHints];
@@ -353,11 +389,9 @@ export const useGame = () => {
     
     const elapsed = (Date.now() - state.roundStartTime) / 1000;
     
-    // Auto-unlock hint 2 after 60 seconds (but only if round duration allows)
     if (elapsed >= 60 && !state.unlockedHints[1]) {
       unlockHint(1);
     }
-    // Auto-unlock hint 3 after 120 seconds (but only if round duration allows)
     if (elapsed >= 120 && !state.unlockedHints[2]) {
       unlockHint(2);
     }
@@ -405,23 +439,7 @@ export const useGame = () => {
 
   const resetGame = useCallback(() => {
     usedAnswersRef.current = new Set();
-    setState({
-      category: null,
-      currentHint: 0,
-      unlockedHints: [true, false, false],
-      maxPoints: POINTS_PER_HINT[0],
-      score: 0,
-      round: 0,
-      totalRounds: TOTAL_ROUNDS,
-      correctAnswers: 0,
-      isPlaying: false,
-      isGameComplete: false,
-      question: null,
-      result: null,
-      selectedAnswer: null,
-      showResult: false,
-      roundStartTime: 0,
-    });
+    setState(createInitialState());
   }, []);
 
   const playAgain = useCallback(() => {

@@ -148,6 +148,11 @@ const Index = () => {
     setMode("home");
   };
 
+  const handleBackToLobby = () => {
+    multiplayerGame.resetGame();
+    setMode("waiting");
+  };
+
   const handleMultiplayerPlayAgain = () => {
     const mpPlayers: MultiplayerPlayer[] = players.map(p => ({
       ...p,
@@ -172,8 +177,241 @@ const Index = () => {
     multiplayerGame.startRound();
   };
 
+  const handleEndMultiplayerGame = () => {
+    multiplayerGame.resetGame();
+    handleHome();
+  };
+
+  // Safe getters with fallbacks
   const currentPlayer = multiplayerGame.getCurrentPlayer();
   const questionMaster = multiplayerGame.getQuestionMaster();
+
+  // Render based on mode
+  const renderContent = () => {
+    switch (mode) {
+      case "home":
+        return (
+          <HomeScreen
+            onSinglePlayer={handleSinglePlayer}
+            onMultiplayer={handleMultiplayer}
+          />
+        );
+
+      case "category":
+        return (
+          <CategorySelect
+            selectedCategory={game.category}
+            onSelectCategory={game.selectCategory}
+            onStartGame={handleStartGame}
+            onBack={handleHome}
+          />
+        );
+
+      case "playing":
+        if (!game.question || !game.category) {
+          return (
+            <div className="min-h-screen bg-background flex items-center justify-center p-4">
+              <div className="text-center">
+                <p className="text-muted-foreground">Loading game...</p>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <GameScreen
+            category={game.category}
+            question={game.question}
+            currentHint={game.currentHint}
+            unlockedHints={game.unlockedHints}
+            maxPoints={game.maxPoints}
+            score={game.score}
+            round={game.round}
+            totalRounds={game.totalRounds}
+            isPlaying={game.isPlaying}
+            result={game.result}
+            selectedAnswer={game.selectedAnswer}
+            showResult={game.showResult}
+            roundDuration={game.roundDuration}
+            onUnlockHint={game.unlockHint}
+            onSubmitAnswer={game.submitAnswer}
+            onTimeUp={game.endRound}
+            onNextRound={handleNextRound}
+            onEndGame={handleHome}
+          />
+        );
+
+      case "complete":
+        return (
+          <GameComplete
+            score={game.score}
+            totalRounds={game.totalRounds}
+            correctAnswers={game.correctAnswers}
+            onPlayAgain={handlePlayAgain}
+            onHome={handleHome}
+          />
+        );
+
+      case "multiplayer":
+        return (
+          <MultiplayerLobby
+            onBack={handleHome}
+            onJoinRoom={handleJoinRoom}
+            onCreateRoom={handleCreateRoom}
+          />
+        );
+
+      case "waiting":
+        return (
+          <WaitingRoom
+            roomCode={roomCode}
+            players={players}
+            isHost={isHost}
+            onBack={handleLeaveRoom}
+            onStartGame={handleMultiplayerStart}
+          />
+        );
+
+      case "multiplayer-playing":
+        return renderMultiplayerPhase();
+
+      default:
+        return (
+          <HomeScreen
+            onSinglePlayer={handleSinglePlayer}
+            onMultiplayer={handleMultiplayer}
+          />
+        );
+    }
+  };
+
+  const renderMultiplayerPhase = () => {
+    const { roundPhase, question, players: gamePlayers, currentRound, totalRounds, timeRemaining, correctGuessOrder, unlockedHints } = multiplayerGame;
+
+    // Fallback for missing data
+    if (!currentPlayer && roundPhase !== "game-complete") {
+      return (
+        <div className="min-h-screen bg-background flex items-center justify-center p-4">
+          <div className="text-center">
+            <p className="text-muted-foreground">Loading player data...</p>
+          </div>
+        </div>
+      );
+    }
+
+    switch (roundPhase) {
+      case "waiting":
+        return (
+          <div className="min-h-screen bg-background flex items-center justify-center p-4">
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mx-auto mb-4">
+                <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
+              </div>
+              <h2 className="font-display text-2xl mb-2">Starting Game...</h2>
+              <p className="text-muted-foreground">Preparing the first round</p>
+            </div>
+          </div>
+        );
+
+      case "question-master-input":
+        if (multiplayerGame.isQuestionMaster() && currentPlayer) {
+          return (
+            <QuestionMasterInput
+              playerName={currentPlayer.name}
+              roundNumber={currentRound}
+              totalRounds={totalRounds}
+              onSubmit={handleSubmitQuestion}
+            />
+          );
+        }
+        return (
+          <div className="min-h-screen bg-background flex items-center justify-center p-4">
+            <div className="text-center">
+              <div className="w-16 h-16 rounded-full bg-secondary/20 flex items-center justify-center mx-auto mb-4">
+                <div className="w-3 h-3 rounded-full bg-secondary animate-pulse" />
+              </div>
+              <h2 className="font-display text-2xl mb-2">Waiting for Question Master</h2>
+              <p className="text-muted-foreground">
+                {questionMaster?.name || "Someone"} is creating the puzzle...
+              </p>
+              <p className="text-sm text-muted-foreground mt-4">
+                Round {currentRound} of {totalRounds}
+              </p>
+            </div>
+          </div>
+        );
+
+      case "guessing":
+        if (!question || !currentPlayer || !questionMaster) {
+          return (
+            <div className="min-h-screen bg-background flex items-center justify-center p-4">
+              <div className="text-center">
+                <p className="text-muted-foreground">Loading question...</p>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <MultiplayerGameScreen
+            question={question}
+            currentHint={multiplayerGame.currentHint}
+            unlockedHints={unlockedHints}
+            timeRemaining={timeRemaining}
+            players={gamePlayers}
+            questionMaster={questionMaster}
+            currentPlayer={currentPlayer}
+            isQuestionMaster={multiplayerGame.isQuestionMaster()}
+            roundNumber={currentRound}
+            totalRounds={totalRounds}
+            onRevealHint={multiplayerGame.revealNextHint}
+            onSubmitAnswer={handleSubmitAnswer}
+            onTimeUp={multiplayerGame.endRound}
+            onEndGame={handleEndMultiplayerGame}
+          />
+        );
+
+      case "round-result":
+        if (!question || !questionMaster) {
+          return (
+            <div className="min-h-screen bg-background flex items-center justify-center p-4">
+              <div className="text-center">
+                <p className="text-muted-foreground">Loading results...</p>
+              </div>
+            </div>
+          );
+        }
+        return (
+          <MultiplayerRoundResult
+            question={question}
+            players={gamePlayers}
+            questionMaster={questionMaster}
+            correctGuessOrder={correctGuessOrder}
+            roundNumber={currentRound}
+            totalRounds={totalRounds}
+            onNextRound={handleNextMultiplayerRound}
+            onEndGame={handleEndMultiplayerGame}
+          />
+        );
+
+      case "game-complete":
+        return (
+          <MultiplayerScoreboard
+            players={gamePlayers}
+            onPlayAgain={handleMultiplayerPlayAgain}
+            onHome={handleHome}
+            onBackToLobby={handleBackToLobby}
+          />
+        );
+
+      default:
+        return (
+          <div className="min-h-screen bg-background flex items-center justify-center p-4">
+            <div className="text-center">
+              <p className="text-muted-foreground">Unknown game state</p>
+            </div>
+          </div>
+        );
+    }
+  };
 
   return (
     <>
@@ -188,132 +426,7 @@ const Index = () => {
         <link rel="manifest" href="/manifest.json" />
       </Helmet>
 
-      {mode === "home" && (
-        <HomeScreen
-          onSinglePlayer={handleSinglePlayer}
-          onMultiplayer={handleMultiplayer}
-        />
-      )}
-
-      {mode === "category" && (
-        <CategorySelect
-          selectedCategory={game.category}
-          onSelectCategory={game.selectCategory}
-          onStartGame={handleStartGame}
-          onBack={handleHome}
-        />
-      )}
-
-      {mode === "playing" && game.question && game.category && (
-        <GameScreen
-          category={game.category}
-          question={game.question}
-          currentHint={game.currentHint}
-          unlockedHints={game.unlockedHints}
-          maxPoints={game.maxPoints}
-          score={game.score}
-          round={game.round}
-          totalRounds={game.totalRounds}
-          isPlaying={game.isPlaying}
-          result={game.result}
-          selectedAnswer={game.selectedAnswer}
-          showResult={game.showResult}
-          roundDuration={game.roundDuration}
-          onUnlockHint={game.unlockHint}
-          onSubmitAnswer={game.submitAnswer}
-          onTimeUp={game.endRound}
-          onNextRound={handleNextRound}
-          onEndGame={handleHome}
-        />
-      )}
-
-      {mode === "complete" && (
-        <GameComplete
-          score={game.score}
-          totalRounds={game.totalRounds}
-          correctAnswers={game.correctAnswers}
-          onPlayAgain={handlePlayAgain}
-          onHome={handleHome}
-        />
-      )}
-
-      {mode === "multiplayer" && (
-        <MultiplayerLobby
-          onBack={handleHome}
-          onJoinRoom={handleJoinRoom}
-          onCreateRoom={handleCreateRoom}
-        />
-      )}
-
-      {mode === "waiting" && (
-        <WaitingRoom
-          roomCode={roomCode}
-          players={players}
-          isHost={isHost}
-          onBack={handleLeaveRoom}
-          onStartGame={handleMultiplayerStart}
-        />
-      )}
-
-      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "question-master-input" && currentPlayer && (
-        multiplayerGame.isQuestionMaster() ? (
-          <QuestionMasterInput
-            playerName={currentPlayer.name}
-            roundNumber={multiplayerGame.currentRound}
-            totalRounds={multiplayerGame.totalRounds}
-            onSubmit={handleSubmitQuestion}
-          />
-        ) : (
-          <div className="min-h-screen bg-background flex items-center justify-center p-4">
-            <div className="text-center">
-              <div className="w-16 h-16 rounded-full bg-secondary/20 flex items-center justify-center mx-auto mb-4">
-                <div className="w-3 h-3 rounded-full bg-secondary animate-pulse" />
-              </div>
-              <h2 className="font-display text-2xl mb-2">Waiting for Question Master</h2>
-              <p className="text-muted-foreground">
-                {questionMaster?.name} is creating the puzzle...
-              </p>
-            </div>
-          </div>
-        )
-      )}
-
-      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "guessing" && multiplayerGame.question && currentPlayer && questionMaster && (
-        <MultiplayerGameScreen
-          question={multiplayerGame.question}
-          currentHint={multiplayerGame.currentHint}
-          timeRemaining={multiplayerGame.timeRemaining}
-          players={multiplayerGame.players}
-          questionMaster={questionMaster}
-          currentPlayer={currentPlayer}
-          isQuestionMaster={multiplayerGame.isQuestionMaster()}
-          roundNumber={multiplayerGame.currentRound}
-          totalRounds={multiplayerGame.totalRounds}
-          onRevealHint={multiplayerGame.revealNextHint}
-          onSubmitAnswer={handleSubmitAnswer}
-          onTimeUp={multiplayerGame.endRound}
-        />
-      )}
-
-      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "round-result" && multiplayerGame.question && questionMaster && (
-        <MultiplayerRoundResult
-          question={multiplayerGame.question}
-          players={multiplayerGame.players}
-          questionMaster={questionMaster}
-          correctGuessOrder={multiplayerGame.correctGuessOrder}
-          roundNumber={multiplayerGame.currentRound}
-          totalRounds={multiplayerGame.totalRounds}
-          onNextRound={handleNextMultiplayerRound}
-        />
-      )}
-
-      {mode === "multiplayer-playing" && multiplayerGame.roundPhase === "game-complete" && (
-        <MultiplayerScoreboard
-          players={multiplayerGame.players}
-          onPlayAgain={handleMultiplayerPlayAgain}
-          onHome={handleHome}
-        />
-      )}
+      {renderContent()}
     </>
   );
 };
