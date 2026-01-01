@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { NeonTitle } from "@/components/NeonTitle";
 import { GlassCard } from "@/components/GlassCard";
 import { MultiplayerPlayer } from "@/hooks/useMultiplayerGame";
-import { Home, RotateCcw, Share2, Trophy, Medal, Award, Crown } from "lucide-react";
+import { Home, RotateCcw, Share2, Trophy, Medal, Award, Crown, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -10,6 +10,7 @@ interface MultiplayerScoreboardProps {
   players: MultiplayerPlayer[];
   onPlayAgain: () => void;
   onHome: () => void;
+  onBackToLobby?: () => void;
 }
 
 const POSITION_ICONS = [Trophy, Medal, Award];
@@ -24,6 +25,7 @@ const MultiplayerScoreboard = ({
   players,
   onPlayAgain,
   onHome,
+  onBackToLobby,
 }: MultiplayerScoreboardProps) => {
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
   const winner = sortedPlayers[0];
@@ -39,7 +41,7 @@ const MultiplayerScoreboard = ({
     const shareText = `🎭 Dumb Charades - Multiplayer Results!\n\n${
       isTie 
         ? `🏆 It's a tie between ${winners.map(w => w.name).join(" & ")}!`
-        : `🏆 Winner: ${winner.name} with ${winner.score} points!`
+        : `🏆 Winner: ${winner?.name || "Unknown"} with ${winner?.score || 0} points!`
     }\n\n${scoreText}\n\nPlay now at ${window.location.origin}`;
 
     if (navigator.share) {
@@ -54,6 +56,19 @@ const MultiplayerScoreboard = ({
       toast.success("Share via WhatsApp");
     }
   };
+
+  if (players.length === 0) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="text-center">
+          <p className="text-muted-foreground mb-4">No players found</p>
+          <Button variant="neon" onClick={onHome}>
+            Go Home
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -71,12 +86,12 @@ const MultiplayerScoreboard = ({
             <p className="text-xl text-muted-foreground">
               It's a tie! 🎉
             </p>
-          ) : (
+          ) : winner ? (
             <p className="text-xl">
               <span className="text-primary font-bold">{winner.name}</span>{" "}
               <span className="text-muted-foreground">wins!</span>
             </p>
-          )}
+          ) : null}
         </div>
 
         {/* Podium for top 3 */}
@@ -87,8 +102,8 @@ const MultiplayerScoreboard = ({
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-300 to-gray-500 flex items-center justify-center mb-2 border-4 border-gray-400">
                 <span className="font-display text-2xl text-background">2</span>
               </div>
-              <p className="font-semibold text-sm truncate max-w-20">{sortedPlayers[1].name}</p>
-              <p className="text-primary font-bold">{sortedPlayers[1].score}</p>
+              <p className="font-semibold text-sm truncate max-w-20">{sortedPlayers[1]?.name || "Player 2"}</p>
+              <p className="text-primary font-bold">{sortedPlayers[1]?.score || 0}</p>
               <div className="w-20 h-24 bg-gray-400/30 rounded-t-lg mt-2" />
             </div>
             
@@ -98,8 +113,8 @@ const MultiplayerScoreboard = ({
               <div className="w-24 h-24 rounded-full bg-gradient-to-br from-yellow-400 to-yellow-600 flex items-center justify-center mb-2 border-4 border-yellow-300 animate-pulse">
                 <span className="font-display text-3xl text-background">1</span>
               </div>
-              <p className="font-bold truncate max-w-24">{sortedPlayers[0].name}</p>
-              <p className="text-primary font-bold text-lg">{sortedPlayers[0].score}</p>
+              <p className="font-bold truncate max-w-24">{sortedPlayers[0]?.name || "Player 1"}</p>
+              <p className="text-primary font-bold text-lg">{sortedPlayers[0]?.score || 0}</p>
               <div className="w-24 h-32 bg-yellow-400/30 rounded-t-lg mt-2" />
             </div>
             
@@ -108,8 +123,8 @@ const MultiplayerScoreboard = ({
               <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center mb-2 border-4 border-amber-600">
                 <span className="font-display text-2xl text-background">3</span>
               </div>
-              <p className="font-semibold text-sm truncate max-w-20">{sortedPlayers[2].name}</p>
-              <p className="text-primary font-bold">{sortedPlayers[2].score}</p>
+              <p className="font-semibold text-sm truncate max-w-20">{sortedPlayers[2]?.name || "Player 3"}</p>
+              <p className="text-primary font-bold">{sortedPlayers[2]?.score || 0}</p>
               <div className="w-20 h-16 bg-amber-600/30 rounded-t-lg mt-2" />
             </div>
           </div>
@@ -183,16 +198,28 @@ const MultiplayerScoreboard = ({
               <Share2 className="w-5 h-5" />
               Share Results
             </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={onHome}
-              className="flex-1 gap-2"
-            >
-              <Home className="w-5 h-5" />
-              Home
-            </Button>
+            {onBackToLobby && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={onBackToLobby}
+                className="flex-1 gap-2"
+              >
+                <Users className="w-5 h-5" />
+                Back to Lobby
+              </Button>
+            )}
           </div>
+          
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={onHome}
+            className="w-full gap-2"
+          >
+            <Home className="w-5 h-5" />
+            Home
+          </Button>
         </div>
       </div>
     </div>

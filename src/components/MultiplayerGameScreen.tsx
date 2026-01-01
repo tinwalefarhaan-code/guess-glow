@@ -1,19 +1,30 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Timer } from "@/components/Timer";
 import { HintCard } from "@/components/HintCard";
 import { NeonTitle } from "@/components/NeonTitle";
 import { GlassCard } from "@/components/GlassCard";
 import { OptionsGrid } from "@/components/OptionsGrid";
 import { categoryConfig, Category } from "@/components/CategoryCard";
 import { MultiplayerPlayer, RoundQuestion } from "@/hooks/useMultiplayerGame";
-import { Send, Users, Crown, Check, X, Clock } from "lucide-react";
+import { Send, Users, Check, X, Clock, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface MultiplayerGameScreenProps {
   question: RoundQuestion;
   currentHint: number;
+  unlockedHints: boolean[];
   timeRemaining: number;
   players: MultiplayerPlayer[];
   questionMaster: MultiplayerPlayer;
@@ -24,6 +35,7 @@ interface MultiplayerGameScreenProps {
   onRevealHint: () => void;
   onSubmitAnswer: (answer: string) => void;
   onTimeUp: () => void;
+  onEndGame: () => void;
 }
 
 const POINTS_BY_POSITION = [10, 7, 5];
@@ -31,6 +43,7 @@ const POINTS_BY_POSITION = [10, 7, 5];
 const MultiplayerGameScreen = ({
   question,
   currentHint,
+  unlockedHints,
   timeRemaining,
   players,
   questionMaster,
@@ -41,17 +54,27 @@ const MultiplayerGameScreen = ({
   onRevealHint,
   onSubmitAnswer,
   onTimeUp,
+  onEndGame,
 }: MultiplayerGameScreenProps) => {
   const [textAnswer, setTextAnswer] = useState("");
-  const config = categoryConfig[question.category];
-  const Icon = config.icon;
+  const [showEndConfirm, setShowEndConfirm] = useState(false);
   
-  const hasAnswered = currentPlayer.hasAnswered;
-  const guessingPlayers = players.filter(p => p.id !== questionMaster.id);
+  const config = question?.category ? categoryConfig[question.category] : null;
+  const Icon = config?.icon;
+  
+  const hasAnswered = currentPlayer?.hasAnswered || false;
+  const guessingPlayers = players.filter(p => p.id !== questionMaster?.id);
+
+  // Format time display
+  const minutes = Math.floor(timeRemaining / 60);
+  const seconds = timeRemaining % 60;
+  const isLowTime = timeRemaining <= 30;
+  const isCriticalTime = timeRemaining <= 10;
 
   const handleTextSubmit = () => {
     if (textAnswer.trim() && !hasAnswered) {
       onSubmitAnswer(textAnswer.trim());
+      setTextAnswer("");
     }
   };
 
@@ -60,6 +83,16 @@ const MultiplayerGameScreen = ({
       handleTextSubmit();
     }
   };
+
+  if (!question || !config || !Icon) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <div className="text-center">
+          <p className="text-muted-foreground">Loading question...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -80,9 +113,39 @@ const MultiplayerGameScreen = ({
               <p className="font-display text-lg">{config.label}</p>
             </div>
           </div>
-          <div className="text-right">
-            <p className="text-xs text-muted-foreground">Question Master</p>
-            <p className="font-semibold text-secondary">{questionMaster.name}</p>
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <p className="text-xs text-muted-foreground">Question Master</p>
+              <p className="font-semibold text-secondary">{questionMaster?.name || "Unknown"}</p>
+            </div>
+            <AlertDialog open={showEndConfirm} onOpenChange={setShowEndConfirm}>
+              <AlertDialogTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <LogOut className="w-5 h-5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent className="bg-background/95 backdrop-blur-lg border-border/50">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Leave Game?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Are you sure you want to leave? You'll lose all progress.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Continue Playing</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={onEndGame}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  >
+                    Leave Game
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </div>
 
@@ -96,14 +159,18 @@ const MultiplayerGameScreen = ({
           </div>
         </div>
 
-        {/* Timer */}
+        {/* Timer Display */}
         <div className="flex justify-center mb-6">
-          <Timer
-            duration={120}
-            onComplete={onTimeUp}
-            isRunning={!hasAnswered}
-            key={`${roundNumber}-${timeRemaining}`}
-          />
+          <div className={cn(
+            "px-6 py-3 rounded-2xl border-2 font-display text-3xl font-bold transition-all",
+            isCriticalTime 
+              ? "border-destructive bg-destructive/10 text-destructive animate-pulse"
+              : isLowTime
+                ? "border-neon-orange bg-neon-orange/10 text-neon-orange"
+                : "border-primary bg-primary/10 text-primary"
+          )}>
+            {minutes}:{seconds.toString().padStart(2, "0")}
+          </div>
         </div>
 
         {/* Question Master View */}
@@ -124,7 +191,7 @@ const MultiplayerGameScreen = ({
               {/* Hint reveal button */}
               {currentHint < 2 && (
                 <Button variant="outline" onClick={onRevealHint} className="gap-2">
-                  Reveal Next Hint
+                  Reveal Hint {currentHint + 2}
                 </Button>
               )}
             </GlassCard>
@@ -168,15 +235,15 @@ const MultiplayerGameScreen = ({
         ) : (
           /* Guessing Player View */
           <div className="space-y-6">
-            {/* Hints */}
+            {/* Hints with lock/unlock */}
             <div className="space-y-3">
               {question.hints.map((hint, index) => (
                 <HintCard
                   key={index}
                   hint={hint}
                   hintNumber={index + 1}
-                  isUnlocked={index <= currentHint}
-                  isLocked={index > currentHint}
+                  isUnlocked={unlockedHints[index] || false}
+                  isLocked={!unlockedHints[index]}
                   points={POINTS_BY_POSITION[index] || 0}
                   canUnlock={false}
                 />
@@ -186,27 +253,27 @@ const MultiplayerGameScreen = ({
             {/* Answer Input */}
             {hasAnswered ? (
               <GlassCard
-                glow={currentPlayer.isCorrect ? "cyan" : "magenta"}
+                glow={currentPlayer?.isCorrect ? "cyan" : "magenta"}
                 className="text-center"
               >
                 <NeonTitle
                   as="h3"
-                  glow={currentPlayer.isCorrect ? "cyan" : "magenta"}
+                  glow={currentPlayer?.isCorrect ? "cyan" : "magenta"}
                   size="md"
                   className="mb-2"
                 >
-                  {currentPlayer.isCorrect ? "CORRECT!" : "SUBMITTED"}
+                  {currentPlayer?.isCorrect ? "CORRECT!" : "SUBMITTED"}
                 </NeonTitle>
                 <p className="text-muted-foreground">
-                  Your answer: <span className="font-semibold">{currentPlayer.answer}</span>
+                  Your answer: <span className="font-semibold">{currentPlayer?.answer || "N/A"}</span>
                 </p>
-                {currentPlayer.isCorrect && (
+                {currentPlayer?.isCorrect && (
                   <p className="text-neon-green mt-2">
                     Waiting for others to answer...
                   </p>
                 )}
               </GlassCard>
-            ) : question.hasOptions ? (
+            ) : question.hasOptions && question.options.length > 0 ? (
               <OptionsGrid
                 options={question.options}
                 correctAnswer={question.answer}
@@ -245,7 +312,7 @@ const MultiplayerGameScreen = ({
                   key={player.id}
                   className={cn(
                     "px-3 py-1 rounded-full text-sm flex items-center gap-1",
-                    player.id === currentPlayer.id
+                    player.id === currentPlayer?.id
                       ? "bg-primary/20 text-primary"
                       : player.hasAnswered
                         ? "bg-muted/50 text-muted-foreground"

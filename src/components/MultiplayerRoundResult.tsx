@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { NeonTitle } from "@/components/NeonTitle";
 import { GlassCard } from "@/components/GlassCard";
 import { MultiplayerPlayer, RoundQuestion } from "@/hooks/useMultiplayerGame";
-import { ArrowRight, Trophy, Medal, Award } from "lucide-react";
+import { ArrowRight, Trophy, Medal, Award, Home } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface MultiplayerRoundResultProps {
@@ -13,6 +13,7 @@ interface MultiplayerRoundResultProps {
   roundNumber: number;
   totalRounds: number;
   onNextRound: () => void;
+  onEndGame: () => void;
 }
 
 const POINTS_BY_POSITION = [10, 7, 5];
@@ -27,14 +28,17 @@ const MultiplayerRoundResult = ({
   roundNumber,
   totalRounds,
   onNextRound,
+  onEndGame,
 }: MultiplayerRoundResultProps) => {
-  const noOneGuessed = correctGuessOrder.length === 0;
+  const noOneGuessed = !correctGuessOrder || correctGuessOrder.length === 0;
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
   
   // Get players who guessed correctly in order
-  const correctGuessers = correctGuessOrder
+  const correctGuessers = (correctGuessOrder || [])
     .map(id => players.find(p => p.id === id))
-    .filter(Boolean) as MultiplayerPlayer[];
+    .filter((p): p is MultiplayerPlayer => p !== undefined);
+
+  const isLastRound = roundNumber >= totalRounds;
 
   return (
     <div className="min-h-screen bg-background p-4 md:p-8">
@@ -53,10 +57,10 @@ const MultiplayerRoundResult = ({
         <GlassCard glow="cyan" className="text-center mb-6">
           <p className="text-sm text-muted-foreground mb-2">The answer was</p>
           <NeonTitle as="h2" glow="cyan" size="lg" className="mb-2">
-            {question.answer}
+            {question?.answer || "Unknown"}
           </NeonTitle>
           <p className="text-muted-foreground">
-            Question by <span className="text-secondary font-semibold">{questionMaster.name}</span>
+            Question by <span className="text-secondary font-semibold">{questionMaster?.name || "Unknown"}</span>
           </p>
         </GlassCard>
 
@@ -80,7 +84,7 @@ const MultiplayerRoundResult = ({
                     )}
                   >
                     <div className="flex items-center gap-3">
-                      <PositionIcon className={cn("w-6 h-6", POSITION_COLORS[idx])} />
+                      <PositionIcon className={cn("w-6 h-6", POSITION_COLORS[idx] || "text-amber-600")} />
                       <span className="font-semibold">{player.name}</span>
                     </div>
                     <span className="text-neon-green font-bold">
@@ -97,7 +101,7 @@ const MultiplayerRoundResult = ({
               NO ONE GUESSED CORRECTLY!
             </NeonTitle>
             <p className="text-muted-foreground mb-2">
-              <span className="text-secondary font-semibold">{questionMaster.name}</span> earns bonus points
+              <span className="text-secondary font-semibold">{questionMaster?.name || "Question Master"}</span> earns bonus points
             </p>
             <span className="text-neon-magenta font-bold text-xl">+10 pts</span>
           </GlassCard>
@@ -123,7 +127,7 @@ const MultiplayerRoundResult = ({
                     {idx + 1}
                   </span>
                   <span className="font-medium">{player.name}</span>
-                  {player.id === questionMaster.id && (
+                  {player.id === questionMaster?.id && (
                     <span className="text-xs text-secondary">(QM)</span>
                   )}
                 </div>
@@ -133,16 +137,28 @@ const MultiplayerRoundResult = ({
           </div>
         </GlassCard>
 
-        {/* Next Round Button */}
-        <Button
-          variant="neon"
-          size="xl"
-          onClick={onNextRound}
-          className="w-full gap-2"
-        >
-          {roundNumber >= totalRounds ? "See Final Results" : "Next Round"}
-          <ArrowRight className="w-5 h-5" />
-        </Button>
+        {/* Action Buttons */}
+        <div className="space-y-3">
+          <Button
+            variant="neon"
+            size="xl"
+            onClick={onNextRound}
+            className="w-full gap-2"
+          >
+            {isLastRound ? "See Final Results" : "Next Round"}
+            <ArrowRight className="w-5 h-5" />
+          </Button>
+          
+          <Button
+            variant="outline"
+            size="lg"
+            onClick={onEndGame}
+            className="w-full gap-2"
+          >
+            <Home className="w-5 h-5" />
+            End Game & Go Home
+          </Button>
+        </div>
       </div>
     </div>
   );
