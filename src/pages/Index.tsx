@@ -11,25 +11,21 @@ import { MultiplayerRoundResult } from "@/components/MultiplayerRoundResult";
 import { MultiplayerScoreboard } from "@/components/MultiplayerScoreboard";
 import { useGame } from "@/hooks/useGame";
 import { useMultiplayerGame, MultiplayerPlayer, RoundQuestion } from "@/hooks/useMultiplayerGame";
+import { useMultiplayerRoom } from "@/hooks/useMultiplayerRoom";
 import { Helmet } from "react-helmet";
 import { toast } from "sonner";
 
 type GameMode = "home" | "category" | "playing" | "complete" | "multiplayer" | "waiting" | "multiplayer-playing";
 
-interface Player {
-  id: string;
-  name: string;
-  isHost: boolean;
-}
-
 const Index = () => {
   const [mode, setMode] = useState<GameMode>("home");
-  const [roomCode, setRoomCode] = useState("");
-  const [isHost, setIsHost] = useState(false);
-  const [players, setPlayers] = useState<Player[]>([]);
-  const [currentPlayerId, setCurrentPlayerId] = useState("");
   const game = useGame();
-  const multiplayerGame = useMultiplayerGame(currentPlayerId);
+  
+  // Multiplayer room management (database + realtime)
+  const multiplayerRoom = useMultiplayerRoom();
+  
+  // Multiplayer game logic (local game state)
+  const multiplayerGame = useMultiplayerGame(multiplayerRoom.currentPlayerId);
 
   const handleSinglePlayer = () => {
     setMode("category");
@@ -39,71 +35,70 @@ const Index = () => {
     setMode("multiplayer");
   };
 
-  const handleCreateRoom = (code: string) => {
-    setRoomCode(code);
-    toast.success("Room created! Share the code with friends.");
-  };
-
-  const handleJoinRoom = (code: string, hostStatus: boolean) => {
-    setRoomCode(code);
-    setIsHost(hostStatus);
-    
-    const playerId = crypto.randomUUID();
-    setCurrentPlayerId(playerId);
-    
-    const currentPlayer: Player = {
-      id: playerId,
-      name: hostStatus ? "You (Host)" : "You",
-      isHost: hostStatus,
-    };
-    
-    if (hostStatus) {
-      setPlayers([currentPlayer]);
-    } else {
-      const hostPlayer: Player = {
-        id: crypto.randomUUID(),
-        name: "Host",
-        isHost: true,
-      };
-      setPlayers([hostPlayer, currentPlayer]);
-      toast.success(`Joined room ${code}!`);
+  const handleCreateRoom = async (playerName: string): Promise<string | null> => {
+    const code = await multiplayerRoom.createRoom(playerName);
+    if (code) {
+      toast.success("Room created! Share the code with friends.");
+      setMode("waiting");
     }
-    
-    setMode("waiting");
+    return code;
   };
 
-  const handleLeaveRoom = () => {
-    setRoomCode("");
-    setIsHost(false);
-    setPlayers([]);
+  const handleJoinRoom = async (code: string, playerName: string): Promise<boolean> => {
+    const success = await multiplayerRoom.joinRoom(code, playerName);
+    if (success) {
+      toast.success(`Joined room ${code}!`);
+      setMode("waiting");
+    }
+    return success;
+  };
+
+  const handleLeaveRoom = async () => {
+    await multiplayerRoom.leaveRoom();
     multiplayerGame.resetGame();
     setMode("multiplayer");
   };
 
-  const handleMultiplayerStart = () => {
-    if (players.length < 2) {
+  const handleMultiplayerStart = async (): Promise<boolean> => {
+    const connectedPlayers = multiplayerRoom.players.filter(p => p.is_connected);
+    
+    if (connectedPlayers.length < 2) {
       toast.error("Need at least 2 players to start");
-      return;
+      return false;
     }
-    if (players.length > 6) {
+    if (connectedPlayers.length > 6) {
       toast.error("Maximum 6 players allowed");
-      return;
+      return false;
     }
     
-    // Initialize multiplayer game with players
-    const mpPlayers: MultiplayerPlayer[] = players.map(p => ({
-      ...p,
-      score: 0,
-      hasAnswered: false,
-      answer: null,
-      isCorrect: null,
-      isConnected: true,
-    }));
-    
-    multiplayerGame.initializeGame(mpPlayers);
-    toast.success("Game starting!");
-    setMode("multiplayer-playing");
+    const success = await multiplayerRoom.startGame();
+    if (success) {
+      toast.success("Game starting!");
+    }
+    return success;
   };
+
+  // Watch for room status changes to sync game start across devices
+  useEffect(() => {
+    if (multiplayerRoom.room?.status === "playing" && mode === "waiting") {
+      // Initialize multiplayer game with connected players
+      const mpPlayers: MultiplayerPlayer[] = multiplayerRoom.players
+        .filter(p => p.is_connected)
+        .map(p => ({
+          id: p.player_id,
+          name: p.name,
+          isHost: p.is_host,
+          score: p.score,
+          hasAnswered: false,
+          answer: null,
+          isCorrect: null,
+          isConnected: p.is_connected,
+        }));
+      
+      multiplayerGame.initializeGame(mpPlayers);
+      setMode("multiplayer-playing");
+    }
+  }, [multiplayerRoom.room?.status, mode, multiplayerRoom.players]);
 
   // Start first round when game initializes
   useEffect(() => {
@@ -142,26 +137,32 @@ const Index = () => {
   const handleHome = () => {
     game.resetGame();
     multiplayerGame.resetGame();
-    setRoomCode("");
-    setIsHost(false);
-    setPlayers([]);
+    multiplayerRoom.leaveRoom();
     setMode("home");
   };
 
-  const handleBackToLobby = () => {
+  const handleBackToLobby = async () => {
     multiplayerGame.resetGame();
+    // Reset room status to waiting
+    if (multiplayerRoom.room) {
+      await multiplayerRoom.updateGameState({});
+    }
     setMode("waiting");
   };
 
   const handleMultiplayerPlayAgain = () => {
-    const mpPlayers: MultiplayerPlayer[] = players.map(p => ({
-      ...p,
-      score: 0,
-      hasAnswered: false,
-      answer: null,
-      isCorrect: null,
-      isConnected: true,
-    }));
+    const mpPlayers: MultiplayerPlayer[] = multiplayerRoom.players
+      .filter(p => p.is_connected)
+      .map(p => ({
+        id: p.player_id,
+        name: p.name,
+        isHost: p.is_host,
+        score: 0,
+        hasAnswered: false,
+        answer: null,
+        isCorrect: null,
+        isConnected: p.is_connected,
+      }));
     multiplayerGame.initializeGame(mpPlayers);
   };
 
@@ -170,16 +171,17 @@ const Index = () => {
   };
 
   const handleSubmitAnswer = (answer: string) => {
-    multiplayerGame.submitAnswer(currentPlayerId, answer);
+    multiplayerGame.submitAnswer(multiplayerRoom.currentPlayerId, answer);
   };
 
   const handleNextMultiplayerRound = () => {
     multiplayerGame.startRound();
   };
 
-  const handleEndMultiplayerGame = () => {
+  const handleEndMultiplayerGame = async () => {
     multiplayerGame.resetGame();
-    handleHome();
+    await multiplayerRoom.leaveRoom();
+    setMode("home");
   };
 
   // Safe getters with fallbacks
@@ -257,15 +259,27 @@ const Index = () => {
             onBack={handleHome}
             onJoinRoom={handleJoinRoom}
             onCreateRoom={handleCreateRoom}
+            isLoading={multiplayerRoom.isLoading}
           />
         );
 
       case "waiting":
+        if (!multiplayerRoom.room) {
+          return (
+            <div className="min-h-screen bg-background flex items-center justify-center p-4">
+              <div className="text-center">
+                <p className="text-muted-foreground">Loading room...</p>
+              </div>
+            </div>
+          );
+        }
         return (
           <WaitingRoom
-            roomCode={roomCode}
-            players={players}
-            isHost={isHost}
+            room={multiplayerRoom.room}
+            players={multiplayerRoom.players}
+            currentPlayerId={multiplayerRoom.currentPlayerId}
+            isHost={multiplayerRoom.isHost}
+            isLoading={multiplayerRoom.isLoading}
             onBack={handleLeaveRoom}
             onStartGame={handleMultiplayerStart}
           />
