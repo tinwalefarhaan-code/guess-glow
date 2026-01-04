@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Category } from "@/components/CategoryCard";
+import { Room, RoomPlayer } from "@/hooks/useMultiplayerRoom";
 
 export interface MultiplayerPlayer {
   id: string;
@@ -20,30 +21,33 @@ export interface RoundQuestion {
   options: string[];
 }
 
-export interface MultiplayerGameState {
-  players: MultiplayerPlayer[];
-  currentRound: number;
+export interface SyncedGameState {
+  currentRoundIndex: number;
   totalRounds: number;
   questionMasterId: string | null;
   question: RoundQuestion | null;
+  puzzleReady: boolean;
   currentHint: number;
   unlockedHints: boolean[];
   timeRemaining: number;
-  isQuestionLocked: boolean;
   roundPhase: "waiting" | "question-master-input" | "guessing" | "round-result" | "game-complete";
+  playerAnswers: Record<string, { answer: string; isCorrect: boolean; answeredAt: number }>;
   correctGuessOrder: string[];
   roundStartTime: number;
+  qmInputStartTime: number; // Track when QM started inputting (for timeout)
+  playerOrder: string[]; // Fixed order of player IDs for QM rotation
 }
 
 const ROUND_DURATION = 240; // 4 minutes
+const QM_TIMEOUT = 180; // 3 minutes for QM to input question
 const POINTS_FIRST = 10;
 const POINTS_SECOND = 7;
 const POINTS_THIRD = 5;
 const POINTS_QM_NO_GUESS = 10;
-const HINT_2_AUTO_UNLOCK = 60; // seconds
-const HINT_3_AUTO_UNLOCK = 120; // seconds
+const HINT_2_AUTO_UNLOCK = 60;
+const HINT_3_AUTO_UNLOCK = 120;
 
-// Fuzzy matching function - accepts close spellings
+// Fuzzy matching function
 const fuzzyMatch = (input: string, target: string): boolean => {
   if (!input || !target) return false;
   
@@ -52,32 +56,24 @@ const fuzzyMatch = (input: string, target: string): boolean => {
   const normalTarget = normalize(target);
   
   if (!normalInput || !normalTarget) return false;
-  
-  // Exact match
   if (normalInput === normalTarget) return true;
   
-  // Allow 1-2 character differences for longer words
   if (normalTarget.length >= 5) {
     let differences = 0;
     const minLen = Math.min(normalInput.length, normalTarget.length);
     const maxLen = Math.max(normalInput.length, normalTarget.length);
-    
-    // Length difference counts as differences
     differences += maxLen - minLen;
     
-    // Character differences
     for (let i = 0; i < minLen; i++) {
       if (normalInput[i] !== normalTarget[i]) {
         differences++;
       }
     }
     
-    // Allow up to 2 differences for words 5+ chars, 1 for shorter
     const allowedDiff = normalTarget.length >= 7 ? 2 : 1;
     if (differences <= allowedDiff) return true;
   }
   
-  // Check if input contains target or vice versa (for compound words)
   if (normalInput.includes(normalTarget) || normalTarget.includes(normalInput)) {
     return true;
   }
@@ -85,63 +81,76 @@ const fuzzyMatch = (input: string, target: string): boolean => {
   return false;
 };
 
-const createInitialState = (): MultiplayerGameState => ({
-  players: [],
-  currentRound: 0,
+export const createInitialSyncedState = (): SyncedGameState => ({
+  currentRoundIndex: 0,
   totalRounds: 0,
   questionMasterId: null,
   question: null,
+  puzzleReady: false,
   currentHint: 0,
   unlockedHints: [true, false, false],
   timeRemaining: ROUND_DURATION,
-  isQuestionLocked: false,
   roundPhase: "waiting",
+  playerAnswers: {},
   correctGuessOrder: [],
   roundStartTime: 0,
+  qmInputStartTime: 0,
+  playerOrder: [],
 });
 
-export const useMultiplayerGame = (currentPlayerId: string) => {
+export const useMultiplayerGame = (
+  currentPlayerId: string,
+  room: Room | null,
+  players: RoomPlayer[],
+  updateGameState: (state: Record<string, unknown>) => Promise<boolean>,
+  updatePlayerScore: (playerId: string, score: number) => Promise<boolean>
+) => {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
-  const qmRotationRef = useRef<string[]>([]);
+  const qmTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
-  const [state, setState] = useState<MultiplayerGameState>(createInitialState());
+  // Parse game state from room
+  const gameState: SyncedGameState = room?.game_state 
+    ? { ...createInitialSyncedState(), ...(room.game_state as unknown as SyncedGameState) }
+    : createInitialSyncedState();
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+  // Build player data with scores from database
+  const gamePlayers: MultiplayerPlayer[] = players.map(p => {
+    const playerAnswer = gameState.playerAnswers[p.player_id];
+    return {
+      id: p.player_id,
+      name: p.name,
+      isHost: p.is_host,
+      score: p.score,
+      hasAnswered: !!playerAnswer,
+      answer: playerAnswer?.answer || null,
+      isCorrect: playerAnswer?.isCorrect ?? null,
+      isConnected: p.is_connected,
     };
-  }, []);
+  });
 
-  // Initialize game with players
-  const initializeGame = useCallback((players: MultiplayerPlayer[]) => {
-    if (!players || players.length === 0) return;
-    
-    const totalRounds = players.length;
-    // Shuffle players for QM rotation
-    const shuffledIds = [...players.map(p => p.id)].sort(() => Math.random() - 0.5);
-    qmRotationRef.current = shuffledIds;
-    
-    setState({
-      players: players.map(p => ({ ...p, score: 0, hasAnswered: false, answer: null, isCorrect: null })),
-      currentRound: 0,
-      totalRounds,
-      questionMasterId: null,
-      question: null,
-      currentHint: 0,
-      unlockedHints: [true, false, false],
-      timeRemaining: ROUND_DURATION,
-      isQuestionLocked: false,
-      roundPhase: "waiting",
-      correctGuessOrder: [],
-      roundStartTime: 0,
-    });
-  }, []);
+  // Determine Question Master from player order
+  const getQuestionMasterIdForRound = useCallback((roundIndex: number): string | null => {
+    if (gameState.playerOrder.length === 0) return null;
+    const idx = (roundIndex - 1) % gameState.playerOrder.length;
+    return gameState.playerOrder[idx] || null;
+  }, [gameState.playerOrder]);
 
-  // Stop timer safely
+  // Check if current player is Question Master
+  const isQuestionMaster = useCallback((): boolean => {
+    return gameState.questionMasterId === currentPlayerId;
+  }, [gameState.questionMasterId, currentPlayerId]);
+
+  // Get current player
+  const getCurrentPlayer = useCallback((): MultiplayerPlayer | undefined => {
+    return gamePlayers.find(p => p.id === currentPlayerId);
+  }, [gamePlayers, currentPlayerId]);
+
+  // Get Question Master player
+  const getQuestionMaster = useCallback((): MultiplayerPlayer | undefined => {
+    return gamePlayers.find(p => p.id === gameState.questionMasterId);
+  }, [gamePlayers, gameState.questionMasterId]);
+
+  // Stop timer
   const stopTimer = useCallback(() => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -149,280 +158,388 @@ export const useMultiplayerGame = (currentPlayerId: string) => {
     }
   }, []);
 
-  // Start next round
-  const startRound = useCallback(() => {
-    stopTimer();
-    
-    setState(prev => {
-      const nextRound = prev.currentRound + 1;
-      if (nextRound > prev.totalRounds || prev.totalRounds === 0) {
-        return { ...prev, roundPhase: "game-complete" };
-      }
+  // Stop QM timeout
+  const stopQmTimeout = useCallback(() => {
+    if (qmTimeoutRef.current) {
+      clearTimeout(qmTimeoutRef.current);
+      qmTimeoutRef.current = null;
+    }
+  }, []);
 
-      const nextQmId = qmRotationRef.current[nextRound - 1] || prev.players[0]?.id;
-      
-      return {
-        ...prev,
-        currentRound: nextRound,
-        questionMasterId: nextQmId,
-        question: null,
-        currentHint: 0,
-        unlockedHints: [true, false, false],
-        timeRemaining: ROUND_DURATION,
-        isQuestionLocked: false,
-        roundPhase: "question-master-input",
-        correctGuessOrder: [],
-        roundStartTime: 0,
-        players: prev.players.map(p => ({
-          ...p,
-          hasAnswered: false,
-          answer: null,
-          isCorrect: null,
-        })),
+  // Initialize game with players (called by host when starting)
+  const initializeGame = useCallback(async () => {
+    const connectedPlayers = players.filter(p => p.is_connected);
+    if (connectedPlayers.length === 0) return false;
+    
+    // Create fixed player order for QM rotation (use the order they appear in the players array)
+    const playerOrder = connectedPlayers
+      .map(p => p.player_id);
+    
+    const totalRounds = playerOrder.length;
+    const firstQmId = playerOrder[0];
+    
+    const newState: SyncedGameState = {
+      ...createInitialSyncedState(),
+      currentRoundIndex: 1,
+      totalRounds,
+      questionMasterId: firstQmId,
+      roundPhase: "question-master-input",
+      playerOrder,
+      qmInputStartTime: Date.now(),
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [players, updateGameState]);
+
+  // Start next round (advance to next QM)
+  const startRound = useCallback(async () => {
+    stopTimer();
+    stopQmTimeout();
+    
+    const nextRoundIndex = gameState.currentRoundIndex + 1;
+    
+    if (nextRoundIndex > gameState.totalRounds) {
+      // Game complete
+      const newState: SyncedGameState = {
+        ...gameState,
+        roundPhase: "game-complete",
       };
-    });
-  }, [stopTimer]);
+      return await updateGameState(newState as unknown as Record<string, unknown>);
+    }
+    
+    const nextQmId = getQuestionMasterIdForRound(nextRoundIndex);
+    
+    const newState: SyncedGameState = {
+      ...gameState,
+      currentRoundIndex: nextRoundIndex,
+      questionMasterId: nextQmId,
+      question: null,
+      puzzleReady: false,
+      currentHint: 0,
+      unlockedHints: [true, false, false],
+      timeRemaining: ROUND_DURATION,
+      roundPhase: "question-master-input",
+      playerAnswers: {},
+      correctGuessOrder: [],
+      roundStartTime: 0,
+      qmInputStartTime: Date.now(),
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, getQuestionMasterIdForRound, stopTimer, stopQmTimeout, updateGameState]);
+
+  // Skip to next QM (called on timeout or disconnect)
+  const skipToNextQm = useCallback(async () => {
+    stopQmTimeout();
+    
+    // Find next connected player in order
+    let nextRoundIndex = gameState.currentRoundIndex;
+    let attempts = 0;
+    let nextQmId: string | null = null;
+    
+    while (attempts < gameState.totalRounds) {
+      nextRoundIndex++;
+      if (nextRoundIndex > gameState.totalRounds) {
+        // All players tried, end game
+        const newState: SyncedGameState = {
+          ...gameState,
+          roundPhase: "game-complete",
+        };
+        return await updateGameState(newState as unknown as Record<string, unknown>);
+      }
+      
+      const potentialQmId = getQuestionMasterIdForRound(nextRoundIndex);
+      const potentialQm = players.find(p => p.player_id === potentialQmId && p.is_connected);
+      
+      if (potentialQm) {
+        nextQmId = potentialQmId;
+        break;
+      }
+      attempts++;
+    }
+    
+    if (!nextQmId) {
+      // No connected players left
+      const newState: SyncedGameState = {
+        ...gameState,
+        roundPhase: "game-complete",
+      };
+      return await updateGameState(newState as unknown as Record<string, unknown>);
+    }
+    
+    const newState: SyncedGameState = {
+      ...gameState,
+      currentRoundIndex: nextRoundIndex,
+      questionMasterId: nextQmId,
+      question: null,
+      puzzleReady: false,
+      roundPhase: "question-master-input",
+      qmInputStartTime: Date.now(),
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, getQuestionMasterIdForRound, players, stopQmTimeout, updateGameState]);
 
   // Question Master submits question
-  const submitQuestion = useCallback((question: RoundQuestion) => {
-    if (!question || !question.answer || !question.hints) return;
+  const submitQuestion = useCallback(async (question: RoundQuestion) => {
+    if (!isQuestionMaster()) return false;
     
-    setState(prev => ({
-      ...prev,
+    const newState: SyncedGameState = {
+      ...gameState,
       question,
-      isQuestionLocked: true,
+      puzzleReady: true,
       roundPhase: "guessing",
       timeRemaining: ROUND_DURATION,
       currentHint: 0,
       unlockedHints: [true, false, false],
       roundStartTime: Date.now(),
-    }));
-  }, []);
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, isQuestionMaster, updateGameState]);
 
-  // Unlock a specific hint (for multiplayer, QM controls this)
-  const unlockHint = useCallback((hintIndex: number) => {
-    setState(prev => {
-      if (hintIndex < 0 || hintIndex > 2) return prev;
-      if (prev.unlockedHints[hintIndex]) return prev;
-      
-      const newUnlockedHints = [...prev.unlockedHints];
-      newUnlockedHints[hintIndex] = true;
-      
-      return {
-        ...prev,
-        unlockedHints: newUnlockedHints,
-        currentHint: hintIndex,
-      };
-    });
-  }, []);
+  // Reveal next hint (QM only)
+  const revealNextHint = useCallback(async () => {
+    if (!isQuestionMaster()) return false;
+    
+    const nextHint = gameState.currentHint + 1;
+    if (nextHint > 2) return false;
+    
+    const newUnlockedHints = [...gameState.unlockedHints];
+    newUnlockedHints[nextHint] = true;
+    
+    const newState: SyncedGameState = {
+      ...gameState,
+      currentHint: nextHint,
+      unlockedHints: newUnlockedHints,
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, isQuestionMaster, updateGameState]);
 
-  // Reveal next hint (for Question Master)
-  const revealNextHint = useCallback(() => {
-    setState(prev => {
-      const nextHint = prev.currentHint + 1;
-      if (nextHint > 2) return prev;
-      
-      const newUnlockedHints = [...prev.unlockedHints];
-      newUnlockedHints[nextHint] = true;
-      
-      return {
-        ...prev,
-        currentHint: nextHint,
-        unlockedHints: newUnlockedHints,
-      };
-    });
-  }, []);
+  // Player submits answer
+  const submitAnswer = useCallback(async (playerId: string, answer: string) => {
+    if (!gameState.question || gameState.roundPhase !== "guessing") return false;
+    if (gameState.playerAnswers[playerId]) return false; // Already answered
+    
+    const isCorrect = fuzzyMatch(answer, gameState.question.answer);
+    
+    const newPlayerAnswers = {
+      ...gameState.playerAnswers,
+      [playerId]: { answer, isCorrect, answeredAt: Date.now() },
+    };
+    
+    const newCorrectOrder = [...gameState.correctGuessOrder];
+    if (isCorrect && !newCorrectOrder.includes(playerId)) {
+      newCorrectOrder.push(playerId);
+    }
+    
+    // Calculate points
+    let points = 0;
+    if (isCorrect) {
+      const position = newCorrectOrder.indexOf(playerId);
+      if (position === 0) points = POINTS_FIRST;
+      else if (position === 1) points = POINTS_SECOND;
+      else if (position === 2) points = POINTS_THIRD;
+    }
+    
+    // Update player score in database
+    if (points > 0) {
+      const player = players.find(p => p.player_id === playerId);
+      if (player) {
+        await updatePlayerScore(playerId, player.score + points);
+      }
+    }
+    
+    const newState: SyncedGameState = {
+      ...gameState,
+      playerAnswers: newPlayerAnswers,
+      correctGuessOrder: newCorrectOrder,
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, players, updateGameState, updatePlayerScore]);
 
-  // Start timer for guessing phase
-  const startTimer = useCallback(() => {
+  // End round
+  const endRound = useCallback(async () => {
     stopTimer();
+    
+    if (gameState.roundPhase === "round-result" || gameState.roundPhase === "game-complete") {
+      return false;
+    }
+    
+    // If no one guessed correctly, QM gets bonus points
+    if (gameState.correctGuessOrder.length === 0 && gameState.questionMasterId) {
+      const qm = players.find(p => p.player_id === gameState.questionMasterId);
+      if (qm) {
+        await updatePlayerScore(gameState.questionMasterId, qm.score + POINTS_QM_NO_GUESS);
+      }
+    }
+    
+    const newState: SyncedGameState = {
+      ...gameState,
+      roundPhase: "round-result",
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, players, stopTimer, updateGameState, updatePlayerScore]);
 
-    timerRef.current = setInterval(() => {
-      setState(prev => {
-        if (prev.roundPhase !== "guessing") {
-          return prev;
-        }
+  // Update timer in state (called by host periodically)
+  const updateTimer = useCallback(async (newTime: number, newUnlockedHints: boolean[], newCurrentHint: number) => {
+    const newState: SyncedGameState = {
+      ...gameState,
+      timeRemaining: newTime,
+      unlockedHints: newUnlockedHints,
+      currentHint: newCurrentHint,
+    };
+    
+    return await updateGameState(newState as unknown as Record<string, unknown>);
+  }, [gameState, updateGameState]);
+
+  // Timer effect (host runs the timer)
+  useEffect(() => {
+    const isHost = players.find(p => p.player_id === currentPlayerId)?.is_host;
+    
+    if (gameState.roundPhase === "guessing" && isHost) {
+      stopTimer();
+      
+      timerRef.current = setInterval(async () => {
+        const elapsed = (Date.now() - gameState.roundStartTime) / 1000;
+        const newTime = Math.max(0, ROUND_DURATION - Math.floor(elapsed));
         
-        const newTime = prev.timeRemaining - 1;
+        // Auto-unlock hints
+        const newUnlockedHints = [...gameState.unlockedHints];
+        let newCurrentHint = gameState.currentHint;
         
-        // Auto-unlock hints based on time elapsed
-        const elapsed = (Date.now() - prev.roundStartTime) / 1000;
-        const newUnlockedHints = [...prev.unlockedHints];
-        let newCurrentHint = prev.currentHint;
-        
-        if (elapsed >= HINT_2_AUTO_UNLOCK && !prev.unlockedHints[1]) {
+        if (elapsed >= HINT_2_AUTO_UNLOCK && !gameState.unlockedHints[1]) {
           newUnlockedHints[1] = true;
           newCurrentHint = Math.max(newCurrentHint, 1);
         }
-        if (elapsed >= HINT_3_AUTO_UNLOCK && !prev.unlockedHints[2]) {
+        if (elapsed >= HINT_3_AUTO_UNLOCK && !gameState.unlockedHints[2]) {
           newUnlockedHints[2] = true;
           newCurrentHint = Math.max(newCurrentHint, 2);
         }
         
-        if (newTime <= 0) {
-          return { 
-            ...prev, 
-            timeRemaining: 0,
-            unlockedHints: newUnlockedHints,
-            currentHint: newCurrentHint,
-          };
+        // Check if all non-QM players answered
+        const guessingPlayers = players.filter(p => p.player_id !== gameState.questionMasterId && p.is_connected);
+        const allAnswered = guessingPlayers.every(p => gameState.playerAnswers[p.player_id]);
+        
+        if (newTime <= 0 || allAnswered) {
+          stopTimer();
+          await endRound();
+        } else if (
+          newTime !== gameState.timeRemaining ||
+          JSON.stringify(newUnlockedHints) !== JSON.stringify(gameState.unlockedHints)
+        ) {
+          await updateTimer(newTime, newUnlockedHints, newCurrentHint);
+        }
+      }, 1000);
+    }
+    
+    return () => stopTimer();
+  }, [gameState.roundPhase, gameState.roundStartTime, currentPlayerId, players]);
+
+  // QM timeout effect (host checks for disconnected/timed out QM)
+  useEffect(() => {
+    const isHost = players.find(p => p.player_id === currentPlayerId)?.is_host;
+    
+    if (gameState.roundPhase === "question-master-input" && isHost && gameState.qmInputStartTime) {
+      stopQmTimeout();
+      
+      const checkQmStatus = async () => {
+        const qm = players.find(p => p.player_id === gameState.questionMasterId);
+        
+        // Skip if QM disconnected
+        if (qm && !qm.is_connected) {
+          console.log("QM disconnected, skipping to next...");
+          await skipToNextQm();
+          return;
         }
         
-        return { 
-          ...prev, 
-          timeRemaining: newTime,
-          unlockedHints: newUnlockedHints,
-          currentHint: newCurrentHint,
-        };
-      });
-    }, 1000);
-  }, [stopTimer]);
-
-  // End round and calculate QM bonus
-  const endRound = useCallback(() => {
-    stopTimer();
-    
-    setState(prev => {
-      if (prev.roundPhase === "round-result" || prev.roundPhase === "game-complete") {
-        return prev;
-      }
-      
-      // If no one guessed correctly, QM gets points
-      const qmBonus = prev.correctGuessOrder.length === 0 ? POINTS_QM_NO_GUESS : 0;
-      
-      return {
-        ...prev,
-        roundPhase: "round-result",
-        players: prev.players.map(p =>
-          p.id === prev.questionMasterId && qmBonus > 0
-            ? { ...p, score: p.score + qmBonus }
-            : p
-        ),
+        // Skip if QM timed out
+        const elapsed = (Date.now() - gameState.qmInputStartTime) / 1000;
+        if (elapsed >= QM_TIMEOUT) {
+          console.log("QM timed out, skipping to next...");
+          await skipToNextQm();
+          return;
+        }
       };
-    });
-  }, [stopTimer]);
-
-  // Player submits answer
-  const submitAnswer = useCallback((playerId: string, answer: string) => {
-    if (!playerId || !answer) return;
-    
-    setState(prev => {
-      if (!prev.question || prev.roundPhase !== "guessing") return prev;
       
-      const player = prev.players.find(p => p.id === playerId);
-      if (!player || player.hasAnswered) return prev;
+      // Check immediately
+      checkQmStatus();
       
-      const isCorrect = fuzzyMatch(answer, prev.question.answer);
+      // Set timeout for remaining time
+      const elapsed = (Date.now() - gameState.qmInputStartTime) / 1000;
+      const remaining = Math.max(0, (QM_TIMEOUT - elapsed) * 1000);
       
-      const newCorrectOrder = [...prev.correctGuessOrder];
-      if (isCorrect && !newCorrectOrder.includes(playerId)) {
-        newCorrectOrder.push(playerId);
+      if (remaining > 0) {
+        qmTimeoutRef.current = setTimeout(() => {
+          skipToNextQm();
+        }, remaining);
       }
-      
-      // Calculate points for this answer
-      let points = 0;
-      if (isCorrect) {
-        const position = newCorrectOrder.indexOf(playerId);
-        if (position === 0) points = POINTS_FIRST;
-        else if (position === 1) points = POINTS_SECOND;
-        else if (position === 2) points = POINTS_THIRD;
-      }
-      
-      return {
-        ...prev,
-        correctGuessOrder: newCorrectOrder,
-        players: prev.players.map(p =>
-          p.id === playerId
-            ? { ...p, hasAnswered: true, answer, isCorrect, score: p.score + points }
-            : p
-        ),
-      };
-    });
-  }, []);
-
-  // Check if round should end
-  const checkRoundEnd = useCallback(() => {
-    const guessingPlayers = state.players.filter(
-      p => p.id !== state.questionMasterId && p.isConnected
-    );
-    
-    if (guessingPlayers.length === 0) return true;
-    
-    const allAnswered = guessingPlayers.every(p => p.hasAnswered);
-    const timerEnded = state.timeRemaining <= 0;
-    
-    return allAnswered || timerEnded;
-  }, [state.players, state.questionMasterId, state.timeRemaining]);
-
-  // Auto-end round when conditions are met
-  useEffect(() => {
-    if (state.roundPhase === "guessing" && checkRoundEnd()) {
-      endRound();
     }
-  }, [state.roundPhase, checkRoundEnd, endRound]);
-
-  // Mark player as disconnected
-  const disconnectPlayer = useCallback((playerId: string) => {
-    setState(prev => ({
-      ...prev,
-      players: prev.players.map(p =>
-        p.id === playerId ? { ...p, isConnected: false, hasAnswered: true } : p
-      ),
-    }));
-  }, []);
+    
+    return () => stopQmTimeout();
+  }, [gameState.roundPhase, gameState.questionMasterId, gameState.qmInputStartTime, currentPlayerId, players]);
 
   // Reset game
-  const resetGame = useCallback(() => {
+  const resetGame = useCallback(async () => {
     stopTimer();
-    qmRotationRef.current = [];
-    setState(createInitialState());
-  }, [stopTimer]);
+    stopQmTimeout();
+    
+    // Reset all player scores
+    for (const player of players) {
+      await updatePlayerScore(player.player_id, 0);
+    }
+    
+    return await updateGameState(createInitialSyncedState() as unknown as Record<string, unknown>);
+  }, [players, stopTimer, stopQmTimeout, updateGameState, updatePlayerScore]);
 
-  // Get current player
-  const getCurrentPlayer = useCallback((): MultiplayerPlayer | undefined => {
-    return state.players.find(p => p.id === currentPlayerId);
-  }, [state.players, currentPlayerId]);
-
-  // Check if current player is Question Master
-  const isQuestionMaster = useCallback((): boolean => {
-    return state.questionMasterId === currentPlayerId;
-  }, [state.questionMasterId, currentPlayerId]);
-
-  // Get Question Master
-  const getQuestionMaster = useCallback((): MultiplayerPlayer | undefined => {
-    return state.players.find(p => p.id === state.questionMasterId);
-  }, [state.players, state.questionMasterId]);
-
-  // Get winner(s)
+  // Get winners
   const getWinners = useCallback((): MultiplayerPlayer[] => {
-    if (state.players.length === 0) return [];
-    const maxScore = Math.max(...state.players.map(p => p.score), 0);
-    return state.players.filter(p => p.score === maxScore);
-  }, [state.players]);
+    if (gamePlayers.length === 0) return [];
+    const maxScore = Math.max(...gamePlayers.map(p => p.score), 0);
+    return gamePlayers.filter(p => p.score === maxScore);
+  }, [gamePlayers]);
 
-  // Get sorted leaderboard
+  // Get leaderboard
   const getLeaderboard = useCallback((): MultiplayerPlayer[] => {
-    return [...state.players].sort((a, b) => b.score - a.score);
-  }, [state.players]);
+    return [...gamePlayers].sort((a, b) => b.score - a.score);
+  }, [gamePlayers]);
 
   return {
-    ...state,
+    // State from database
+    players: gamePlayers,
+    currentRound: gameState.currentRoundIndex,
+    totalRounds: gameState.totalRounds,
+    questionMasterId: gameState.questionMasterId,
+    question: gameState.question,
+    puzzleReady: gameState.puzzleReady,
+    currentHint: gameState.currentHint,
+    unlockedHints: gameState.unlockedHints,
+    timeRemaining: gameState.timeRemaining,
+    roundPhase: gameState.roundPhase,
+    correctGuessOrder: gameState.correctGuessOrder,
+    
+    // Actions
     initializeGame,
     startRound,
     submitQuestion,
-    startTimer,
-    stopTimer,
-    unlockHint,
     revealNextHint,
     submitAnswer,
     endRound,
-    disconnectPlayer,
     resetGame,
+    skipToNextQm,
+    
+    // Helpers
     getCurrentPlayer,
     isQuestionMaster,
     getQuestionMaster,
     getWinners,
     getLeaderboard,
+    
+    // Constants
     ROUND_DURATION,
+    QM_TIMEOUT,
   };
 };
